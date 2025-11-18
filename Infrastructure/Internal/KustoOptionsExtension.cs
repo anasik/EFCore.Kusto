@@ -2,16 +2,16 @@ using System;
 using System.Collections.Generic;
 using EFCore.Kusto.Extensions;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.EntityFrameworkCore.Storage.Internal;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EFCore.Kusto.Infrastructure.Internal;
 
 public sealed class KustoOptionsExtension : RelationalOptionsExtension
 {
-    public string ClusterUrl { get; private set; }
-    public string Database { get; private set; }
+    private DbContextOptionsExtensionInfo _info;
+
+    public string? ClusterUrl { get; private set; }
+    public string? Database { get; private set; }
 
     public KustoOptionsExtension() { }
 
@@ -27,14 +27,14 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
 
     public KustoOptionsExtension WithCluster(string cluster)
     {
-        var clone = new KustoOptionsExtension();
+        var clone = new KustoOptionsExtension(this);
         clone.ClusterUrl = cluster;
         return clone;
     }
 
     public KustoOptionsExtension WithDatabase(string db)
     {
-        var clone = new KustoOptionsExtension();
+        var clone = new KustoOptionsExtension(this);
         clone.Database = db;
         return clone;
     }
@@ -43,5 +43,38 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         => services.AddEntityFrameworkKusto();
 
     public override void Validate(IDbContextOptions options) { }
-    public override DbContextOptionsExtensionInfo Info { get; }
+
+    public override DbContextOptionsExtensionInfo Info
+        => _info ??= new ExtensionInfo(this);
+
+    private sealed class ExtensionInfo : DbContextOptionsExtensionInfo
+    {
+        private readonly KustoOptionsExtension _extension;
+
+        public ExtensionInfo(KustoOptionsExtension extension)
+            : base(extension)
+        {
+            _extension = extension;
+        }
+
+        public override bool IsDatabaseProvider => true;
+
+        public override string LogFragment =>
+            $"Kusto(Cluster={_extension.ClusterUrl ?? "null"},Db={_extension.Database ?? "null"}) ";
+
+        public override int GetServiceProviderHashCode()
+            => HashCode.Combine(_extension.ClusterUrl, _extension.Database);
+
+        public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other)
+        {
+            return other is ExtensionInfo;
+        }
+
+
+        public override void PopulateDebugInfo(IDictionary<string, string> debugInfo)
+        {
+            debugInfo["Kusto:Cluster"] = _extension.ClusterUrl ?? "null";
+            debugInfo["Kusto:Database"] = _extension.Database ?? "null";
+        }
+    }
 }

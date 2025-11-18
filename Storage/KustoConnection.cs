@@ -1,56 +1,54 @@
 using System.Data;
 using System.Data.Common;
-using Microsoft.EntityFrameworkCore.Storage;
+using EFCore.Kusto.Data;
 using EFCore.Kusto.Infrastructure.Internal;
 using Kusto.Data;
-using Kusto.Data.Common;
-using Kusto.Data.Net.Client;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Storage;
 
 public sealed class KustoConnection : RelationalConnection
 {
-    private ICslQueryProvider _client;
+    private readonly string _clusterUrl;
+    private readonly string _database;
 
     public KustoConnection(RelationalConnectionDependencies dependencies)
         : base(dependencies)
     {
-        var opts = dependencies.ContextOptions.FindExtension<KustoOptionsExtension>()
-                   ?? throw new InvalidOperationException("KustoOptionsExtension missing.");
+        var opts = dependencies.ContextOptions.FindExtension<KustoOptionsExtension>();
 
-        var csb = new KustoConnectionStringBuilder(opts.ClusterUrl)
-            .WithAadUserPromptAuthentication();
-
-        _client = KustoClientFactory.CreateCslQueryProvider(csb);
+        _clusterUrl = opts.ClusterUrl;
+        _database = opts.Database;
     }
 
-    public ICslQueryProvider Client => _client;
-
-    // ---------------------------------------------------------
-    // RelationalConnection requires these overrides
-    // ---------------------------------------------------------
-
-    public override DbConnection DbConnection => _fake;
-
-    private readonly DbConnection _fake = new FakeDbConnection();
-
     protected override DbConnection CreateDbConnection()
-        => _fake;
+        => new FakeKustoConnection(_clusterUrl, _database);
 
-    private sealed class FakeDbConnection : DbConnection
+    private sealed class FakeKustoConnection : DbConnection
     {
-        public override string ConnectionString { get; set; } = "KUSTO_FAKE";
-        public override string Database => "Kusto";
-        public override string DataSource => "Kusto";
+        private readonly string _cluster;
+        private readonly string _db;
+
+        public FakeKustoConnection(string cluster, string db)
+        {
+            _cluster = cluster;
+            _db = db;
+        }
+
+        public override string ConnectionString { get; set; }
+        public override string Database => _db;
+        public override string DataSource => _cluster;
         public override string ServerVersion => "Kusto";
         public override ConnectionState State => ConnectionState.Open;
 
-        public override void ChangeDatabase(string databaseName) { }
-        public override void Close() { }
         public override void Open() { }
+        public override void Close() { }
+        public override void ChangeDatabase(string databaseName) { }
+
         protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
             => throw new NotSupportedException();
+
         protected override DbCommand CreateDbCommand()
-            => throw new NotSupportedException();
+            => new KustoCommand(_cluster, _db);
     }
 }
