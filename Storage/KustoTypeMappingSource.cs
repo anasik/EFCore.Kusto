@@ -1,11 +1,58 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Storage;
 
-public class KustoTypeMappingSource : RelationalTypeMappingSource
+public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 {
-    public KustoTypeMappingSource(TypeMappingSourceDependencies dependencies,
-        RelationalTypeMappingSourceDependencies relationalDependencies) : base(dependencies, relationalDependencies)
+    private static readonly RelationalTypeMapping _string
+        = new StringTypeMapping("string", DbType.String);
+
+    private static readonly RelationalTypeMapping _int
+        = new IntTypeMapping("long", System.Data.DbType.Int64);
+
+    private static readonly RelationalTypeMapping _bool
+        = new BoolTypeMapping("bool");
+
+    private static readonly RelationalTypeMapping _double
+        = new DoubleTypeMapping("real");
+
+    private static readonly RelationalTypeMapping _dateTime
+        = new DateTimeTypeMapping("datetime");
+
+    private static readonly RelationalTypeMapping _guid
+        = new GuidTypeMapping("string"); // stored as string in Kusto params
+
+    public KustoTypeMappingSource(
+        TypeMappingSourceDependencies dependencies,
+        RelationalTypeMappingSourceDependencies relationalDependencies)
+        : base(dependencies, relationalDependencies)
     {
+    }
+
+    protected override RelationalTypeMapping? FindMapping(in RelationalTypeMappingInfo mappingInfo)
+    {
+        var clrType = mappingInfo.ClrType;
+
+        if (clrType == typeof(string))
+            return _string;
+
+        if (clrType == typeof(int) || clrType == typeof(long))
+            return _int;
+
+        if (clrType == typeof(bool))
+            return _bool;
+
+        if (clrType == typeof(double) || clrType == typeof(float) || clrType == typeof(decimal))
+            return _double;
+
+        if (clrType == typeof(DateTime))
+            return _dateTime;
+
+        if (clrType == typeof(Guid))
+            return _guid;
+
+        // EF fallback
+        return base.FindMapping(mappingInfo);
     }
 }
