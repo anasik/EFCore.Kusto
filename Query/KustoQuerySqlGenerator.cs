@@ -1,10 +1,179 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
+using System.Text;
 
-namespace EFCore.Kusto.Query;
+namespace EFCore.Kusto.Query.Internal;
 
-public class KustoQuerySqlGenerator : QuerySqlGenerator
+public sealed class KustoQuerySqlGenerator : QuerySqlGenerator
 {
-    public KustoQuerySqlGenerator(QuerySqlGeneratorDependencies dependencies) : base(dependencies)
+    public KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps)
+        : base(deps)
     {
+    }
+
+    protected override Expression VisitSelect(SelectExpression select)
+    {
+        // ============================================================
+        // 1. FROM (table source)
+        // ============================================================
+        if (select.Tables.Count == 0)
+            throw new NotSupportedException("Kusto requires exactly one table.");
+
+        var tableExpr = select.Tables[0];
+
+        switch (tableExpr)
+        {
+            case TableExpression t:
+                Sql.Append(t.Table.Name);
+                break;
+
+            case FromSqlExpression f:
+                Sql.Append("(");
+                Sql.Append(f.Sql);
+                Sql.Append(")");
+                break;
+
+            default:
+                throw new NotSupportedException(
+                    $"Unsupported table expression: {tableExpr.GetType().Name}");
+        }
+
+        // ============================================================
+        // 2. WHERE
+        // ============================================================
+        if (select.Predicate != null)
+        {
+            Sql.AppendLine();
+            Sql.Append("| where ");
+            Visit(select.Predicate);
+        }
+
+        // ============================================================
+        // 3. PROJECTION (SELECT)
+        // ============================================================
+        if (select.Projection.Count > 0)
+        {
+            Sql.AppendLine();
+            Sql.Append("| project ");
+
+            for (int i = 0; i < select.Projection.Count; i++)
+            {
+                if (i > 0) Sql.Append(", ");
+
+                var proj = select.Projection[i];
+
+                if (proj.Alias != null)
+                    Sql.Append($"{proj.Alias} = ");
+
+                Visit(proj.Expression);
+            }
+        }
+
+        // ============================================================
+        // 4. ORDER BY
+        // ============================================================
+        if (select.Orderings.Count > 0)
+        {
+            Sql.AppendLine();
+            Sql.Append("| order by ");
+
+            for (int i = 0; i < select.Orderings.Count; i++)
+            {
+                if (i > 0) Sql.Append(", ");
+
+                Visit(select.Orderings[i].Expression);
+                Sql.Append(select.Orderings[i].IsAscending ? " asc" : " desc");
+            }
+        }
+
+        // ============================================================
+        // 5. SKIP
+        // ============================================================
+        if (select.Offset != null)
+        {
+            Sql.AppendLine();
+            Sql.Append("| skip ");
+            Visit(select.Offset);
+        }
+
+        // ============================================================
+        // 6. TAKE
+        // ============================================================
+        if (select.Limit != null)
+        {
+            Sql.AppendLine();
+            Sql.Append("| take ");
+            Visit(select.Limit);
+        }
+
+        return select;
+    }
+
+    // ============================================================
+    // Binary expressions → map to KQL operators
+    // ============================================================
+    protected override Expression VisitSqlBinary(SqlBinaryExpression b)
+    {
+        Sql.Append("(");
+
+        Visit(b.Left);
+
+        Sql.Append(b.OperatorType switch
+        {
+            ExpressionType.Equal                  => " == ",
+            ExpressionType.NotEqual               => " != ",
+            ExpressionType.GreaterThan            => " > ",
+            ExpressionType.GreaterThanOrEqual     => " >= ",
+            ExpressionType.LessThan               => " < ",
+            ExpressionType.LessThanOrEqual        => " <= ",
+            ExpressionType.AndAlso                => " and ",
+            ExpressionType.OrElse                 => " or ",
+            _ => throw new NotSupportedException($"Unsupported operator: {b.OperatorType}")
+        });
+
+        Visit(b.Right);
+
+        Sql.Append(")");
+
+        return b;
+    }
+
+    // ============================================================
+    // Column expressions
+    // ============================================================
+    protected override Expression VisitColumn(ColumnExpression column)
+    {
+        Sql.Append(column.Name);
+        return column;
+    }
+
+    // ============================================================
+    // Constants → map to KQL literals
+    // ============================================================
+    protected override Expression VisitSqlConstant(SqlConstantExpression c)
+    {
+        if (c.Value == null)
+        {
+            Sql.Append("null");
+            return c;
+        }
+
+        switch (c.Type.Name)
+        {
+            case "String":
+                Sql.Append($"\"{c.Value}\"");
+                break;
+
+            case "Boolean":
+                Sql.Append((bool)c.Value ? "true" : "false");
+                break;
+
+            default:
+                Sql.Append((string)c.Value);
+                break;
+        }
+
+        return c;
     }
 }

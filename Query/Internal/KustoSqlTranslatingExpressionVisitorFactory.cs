@@ -1,12 +1,23 @@
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
 namespace EFCore.Kusto.Query.Internal;
 
-public class KustoSqlTranslatingExpressionVisitorFactory : IRelationalSqlTranslatingExpressionVisitorFactory
+public sealed class KustoSqlTranslatingExpressionVisitorFactory
+    : IRelationalSqlTranslatingExpressionVisitorFactory
 {
-    public RelationalSqlTranslatingExpressionVisitor Create(QueryCompilationContext queryCompilationContext,
-        QueryableMethodTranslatingExpressionVisitor queryableMethodTranslatingExpressionVisitor)
+    private readonly RelationalSqlTranslatingExpressionVisitorDependencies _deps;
+
+    public KustoSqlTranslatingExpressionVisitorFactory(
+        RelationalSqlTranslatingExpressionVisitorDependencies deps)
     {
-        throw new NotImplementedException();
+        _deps = deps;
+    }
+
+    public RelationalSqlTranslatingExpressionVisitor Create(
+        QueryCompilationContext context,
+        QueryableMethodTranslatingExpressionVisitor queryVisitor)
+    {
+        return new KustoSqlTranslatingExpressionVisitor(_deps, context, queryVisitor);
     }
 }

@@ -2,10 +2,15 @@ using Microsoft.EntityFrameworkCore.Query;
 
 namespace EFCore.Kusto.Query.Internal;
 
-internal class KustoQuerySqlGeneratorFactory : IQuerySqlGeneratorFactory
+public sealed class KustoQuerySqlGeneratorFactory : IQuerySqlGeneratorFactory
 {
-    public QuerySqlGenerator Create()
+    private readonly QuerySqlGeneratorDependencies _deps;
+
+    public KustoQuerySqlGeneratorFactory(QuerySqlGeneratorDependencies deps)
     {
-        throw new NotImplementedException();
+        _deps = deps;
     }
+
+    public QuerySqlGenerator Create()
+        => new KustoQuerySqlGenerator(_deps);
 }
