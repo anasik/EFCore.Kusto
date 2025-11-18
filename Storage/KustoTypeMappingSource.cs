@@ -17,6 +17,8 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
     private static readonly RelationalTypeMapping _double
         = new DoubleTypeMapping("real");
 
+    private static readonly RelationalTypeMapping _decimal = new DecimalTypeMapping("real");
+
     private static readonly RelationalTypeMapping _dateTime
         = new DateTimeTypeMapping("datetime");
 
@@ -43,8 +45,11 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         if (clrType == typeof(bool))
             return _bool;
 
-        if (clrType == typeof(double) || clrType == typeof(float) || clrType == typeof(decimal))
+        if (clrType == typeof(double) || clrType == typeof(float))
             return _double;
+        
+        if (clrType == typeof(decimal))
+            return _decimal;
 
         if (clrType == typeof(DateTime))
             return _dateTime;

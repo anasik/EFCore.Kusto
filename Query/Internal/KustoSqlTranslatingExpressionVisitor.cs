@@ -4,17 +4,12 @@ using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
 namespace EFCore.Kusto.Query.Internal;
 
-public sealed class KustoSqlTranslatingExpressionVisitor
-    : RelationalSqlTranslatingExpressionVisitor
+public sealed class KustoSqlTranslatingExpressionVisitor(
+    RelationalSqlTranslatingExpressionVisitorDependencies deps,
+    QueryCompilationContext context,
+    QueryableMethodTranslatingExpressionVisitor queryVisitor)
+    : RelationalSqlTranslatingExpressionVisitor(deps, context, queryVisitor)
 {
-    public KustoSqlTranslatingExpressionVisitor(
-        RelationalSqlTranslatingExpressionVisitorDependencies deps,
-        QueryCompilationContext context,
-        QueryableMethodTranslatingExpressionVisitor queryVisitor)
-        : base(deps, context, queryVisitor)
-    {
-    }
-
     // ------------------------------------------------------------
     // OVERRIDE: Member Access
     // ------------------------------------------------------------
@@ -54,4 +49,9 @@ public sealed class KustoSqlTranslatingExpressionVisitor
         return translated;
     }
 
+    protected override Expression VisitParameter(ParameterExpression parameterExpression)
+    {
+        return base.VisitParameter(parameterExpression);
+    }
+    
 }

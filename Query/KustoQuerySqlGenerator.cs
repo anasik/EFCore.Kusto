@@ -1,17 +1,11 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
-using System.Text;
 
-namespace EFCore.Kusto.Query.Internal;
+namespace EFCore.Kusto.Query;
 
-public sealed class KustoQuerySqlGenerator : QuerySqlGenerator
+public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
 {
-    public KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps)
-        : base(deps)
-    {
-    }
-
     protected override Expression VisitSelect(SelectExpression select)
     {
         // ============================================================
@@ -176,4 +170,16 @@ public sealed class KustoQuerySqlGenerator : QuerySqlGenerator
 
         return c;
     }
+
+    protected override Expression VisitParameter(ParameterExpression node)
+    {
+        return base.VisitParameter(node);
+    }
+
+    protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
+    {
+        return base.VisitSqlParameter(sqlParameterExpression);
+        
+    }
+    
 }
