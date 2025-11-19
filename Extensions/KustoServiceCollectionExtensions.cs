@@ -139,14 +139,11 @@ public class KustoQueryCompiler(
         bool parameterize = true,
         bool generateContextAccessors = false)
     {
-        // Reset for new query
         KustoValueCache.Reset();
-
-        // Capture OData values early
-        query = new KustoODataParameterCapturer().Visit(query);
-
-        // Now no OData junk remains. Only your own constant surrogate strings.
-        return base.ExtractParameters(query, parameterValues, logger, parameterize, generateContextAccessors);
+        var q = base.ExtractParameters(query, parameterValues, logger, parameterize, generateContextAccessors);
+        foreach (var kv in parameterValues.ParameterValues)
+            KustoValueCache.Values[kv.Key] = kv.Value;
+        return q;
     }
 
 }

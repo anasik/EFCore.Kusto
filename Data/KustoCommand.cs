@@ -62,27 +62,9 @@ public sealed class KustoCommand : DbCommand
 
         var client = KustoClientFactory.CreateCslQueryProvider(csb);
 
-        CommandText = Regex.Replace(CommandText, @"__\w+_\d+", match =>
-        {
-            var key = match.Value;
+        var reader = client.ExecuteQuery(CommandText);
 
-            if (!KustoValueCache.Values.TryGetValue(key, out var value))
-                return key; // not found → leave as-is
-
-            return value?.ToString() ?? "null";
-        });
-
-        var props = new ClientRequestProperties
-        {
-            ClientRequestId = $"HVMLS.{Guid.NewGuid()}"
-        };
-        // Server-side timeout (tune as needed)
-        props.SetOption(ClientRequestProperties.OptionServerTimeout, TimeSpan.FromSeconds(60));
-
-        var reader = client.ExecuteQuery(_database, CommandText, props);
-
-        var x  = new KustoDataReader(reader, client);
-        return x;
+        return new KustoDataReader(reader, client);
     }
 
     private async Task<string> GetKustoTokenAsync(string clusterUrl)

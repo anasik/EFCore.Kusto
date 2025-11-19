@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Data.SqlTypes;
 using Kusto.Data.Common;
 
 namespace EFCore.Kusto.Storage;
@@ -19,14 +20,14 @@ public sealed class KustoDataReader : DbDataReader
     public override void Close()
     {
         _inner.Close();
-        _client.Dispose();  // close the client WHEN the reader is closed
+        _client.Dispose(); // close the client WHEN the reader is closed
     }
 
     public override bool Read() => _inner.Read();
-    
+
     public override Task<bool> ReadAsync(CancellationToken cancellationToken)
         => Task.FromResult(Read());
-    
+
     public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken)
         => Task.FromResult(GetFieldValue<T>(ordinal));
 
@@ -63,6 +64,7 @@ public sealed class KustoDataReader : DbDataReader
         while (Read())
             yield return this;
     }
+
     public override bool NextResult() => _inner.NextResult();
 
     public override string GetDataTypeName(int ordinal) => _inner.GetDataTypeName(ordinal);
@@ -71,22 +73,24 @@ public sealed class KustoDataReader : DbDataReader
     public override string GetString(int ordinal) => _inner.GetString(ordinal);
     public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
-    public override double GetDouble(int ordinal) => Convert.ToDouble(_inner.GetValue(ordinal));
-    public override decimal GetDecimal(int ordinal) => Convert.ToDecimal(_inner.GetValue(ordinal));
+    public override double GetDouble(int ordinal) => ((SqlDouble)_inner.GetValue(ordinal)).Value;
+    public override decimal GetDecimal(int ordinal) => ((SqlDecimal)_inner.GetValue(ordinal)).Value;
     public override DateTime GetDateTime(int ordinal) => _inner.GetDateTime(ordinal);
     public override bool GetBoolean(int ordinal) => _inner.GetBoolean(ordinal);
-    public override float GetFloat(int ordinal) => Convert.ToSingle(_inner.GetValue(ordinal));
-    public override short GetInt16(int ordinal) => Convert.ToInt16(_inner.GetValue(ordinal));
-    public override byte GetByte(int ordinal) => Convert.ToByte(_inner.GetValue(ordinal));
+    public override float GetFloat(int ordinal) => (float)((SqlDecimal)_inner.GetValue(ordinal)).Value;
+    public override short GetInt16(int ordinal) => ((SqlInt16)_inner.GetValue(ordinal)).Value;
+    public override byte GetByte(int ordinal) => ((SqlByte)_inner.GetValue(ordinal)).Value;
     public override Guid GetGuid(int ordinal) => Guid.Parse(_inner.GetValue(ordinal).ToString());
 
     public override long GetBytes(int a, long b, byte[] c, int d, int e) => throw new NotSupportedException();
+
     public override char GetChar(int ordinal)
     {
         throw new NotImplementedException();
     }
 
     public override long GetChars(int a, long b, char[] c, int d, int e) => throw new NotSupportedException();
+
     public override int GetValues(object[] values)
     {
         int count = Math.Min(values.Length, FieldCount);
