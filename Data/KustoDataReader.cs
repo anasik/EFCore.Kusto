@@ -8,10 +8,40 @@ namespace EFCore.Kusto.Storage;
 public sealed class KustoDataReader : DbDataReader
 {
     private readonly IDataReader _inner;
+    private readonly ICslQueryProvider _client; // hold client
 
-    public KustoDataReader(IDataReader inner) => _inner = inner;
+    public KustoDataReader(IDataReader inner, ICslQueryProvider client)
+    {
+        _inner = inner;
+        _client = client;
+    }
+
+    public override void Close()
+    {
+        _inner.Close();
+        _client.Dispose();  // close the client WHEN the reader is closed
+    }
 
     public override bool Read() => _inner.Read();
+    
+    public override Task<bool> ReadAsync(CancellationToken cancellationToken)
+        => Task.FromResult(Read());
+    
+    public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken)
+        => Task.FromResult(GetFieldValue<T>(ordinal));
+
+    public override T GetFieldValue<T>(int ordinal)
+        => (T)_inner.GetValue(ordinal);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _inner.Dispose();
+
+        base.Dispose(disposing);
+    }
+
+
     public override int FieldCount => _inner.FieldCount;
 
     public override string GetName(int ordinal) => _inner.GetName(ordinal);
@@ -20,16 +50,20 @@ public sealed class KustoDataReader : DbDataReader
     public override object GetValue(int ordinal) => _inner.GetValue(ordinal);
     public override bool IsDBNull(int ordinal) => _inner.IsDBNull(ordinal);
 
-    public override bool HasRows => true;
-    public override bool IsClosed => false;
-    public override int RecordsAffected => -1;
-    public override int Depth => 0;
+    public override bool HasRows => _inner is DbDataReader dr ? dr.HasRows : true;
+    public override bool IsClosed => _inner.IsClosed;
+    public override int RecordsAffected => 11;
+    public override int Depth => _inner.Depth;
 
     public override object this[int ordinal] => _inner.GetValue(ordinal);
     public override object this[string name] => _inner.GetValue(_inner.GetOrdinal(name));
 
-    public override IEnumerator GetEnumerator() => throw new NotSupportedException();
-    public override bool NextResult() => false;
+    public override IEnumerator GetEnumerator()
+    {
+        while (Read())
+            yield return this;
+    }
+    public override bool NextResult() => _inner.NextResult();
 
     public override string GetDataTypeName(int ordinal) => _inner.GetDataTypeName(ordinal);
     public override Type GetFieldType(int ordinal) => _inner.GetFieldType(ordinal);
