@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Linq.Expressions;
+using EFCore.Kusto.Extensions;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
@@ -115,14 +117,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         Sql.Append(b.OperatorType switch
         {
-            ExpressionType.Equal                  => " == ",
-            ExpressionType.NotEqual               => " != ",
-            ExpressionType.GreaterThan            => " > ",
-            ExpressionType.GreaterThanOrEqual     => " >= ",
-            ExpressionType.LessThan               => " < ",
-            ExpressionType.LessThanOrEqual        => " <= ",
-            ExpressionType.AndAlso                => " and ",
-            ExpressionType.OrElse                 => " or ",
+            ExpressionType.Equal => " == ",
+            ExpressionType.NotEqual => " != ",
+            ExpressionType.GreaterThan => " > ",
+            ExpressionType.GreaterThanOrEqual => " >= ",
+            ExpressionType.LessThan => " < ",
+            ExpressionType.LessThanOrEqual => " <= ",
+            ExpressionType.AndAlso => " and ",
+            ExpressionType.OrElse => " or ",
             _ => throw new NotSupportedException($"Unsupported operator: {b.OperatorType}")
         });
 
@@ -178,8 +180,38 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
-        return base.VisitSqlParameter(sqlParameterExpression);
-        
+        var name = sqlParameterExpression.Name;
+
+        if (KustoValueCache.Values.TryGetValue(name, out var value))
+        {
+            // Emit correct literal directly to SQL builder
+            Sql.Append(ToKustoLiteral(value));
+
+            // DO NOT emit the sqlParameterExpression name
+            return sqlParameterExpression;
+        }
+
+        // fallback (should never hit)
+        Sql.Append(name);
+        return sqlParameterExpression;
     }
-    
+
+    private static string ToKustoLiteral(object? value)
+    {
+        return value switch
+        {
+            null => "null",
+            string s => $"'{s.Replace("'", "''")}'",
+            bool b => b ? "true" : "false",
+            int i => i.ToString(),
+            long l => l.ToString(),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            decimal m => m.ToString(CultureInfo.InvariantCulture),
+            Guid g => $"'{g}'",
+            DateTime dt => $"datetime({dt:O})",
+            DateOnly dOnly => $"date({dOnly:yyyy-MM-dd})",
+            TimeOnly tOnly => $"time({tOnly:HH:mm:ss.fffffff})",
+            _ => $"'{value}'"
+        };
+    }
 }
