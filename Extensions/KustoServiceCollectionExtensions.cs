@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Text;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +15,7 @@ using EFCore.Kusto.Metadata.Internal;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
+using Microsoft.EntityFrameworkCore.Query.Internal;
 using Microsoft.EntityFrameworkCore.Update;
 
 namespace EFCore.Kusto.Extensions;
@@ -36,10 +39,116 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IProviderConventionSetBuilder, KustoConventionSetBuilder>()
             .TryAdd<IRelationalAnnotationProvider, KustoAnnotationProvider>()
             .TryAdd<IUpdateSqlGenerator, KustoUpdateSqlGenerator>()
+            // .TryAdd<IEvaluatableExpressionFilter, KustoEvaluatableExpressionFilter>()
+            .TryAdd<IQueryCompiler, KustoQueryCompiler>()
             .TryAddCoreServices();
 
         return services;
     }
+}
+
+public sealed class KustoODataParameterCapturer : ExpressionVisitor
+{
+    private int _counter = 1;
+
+    protected override Expression VisitMember(MemberExpression node)
+    {
+        if (node.Expression is ConstantExpression ce &&
+            ce.Value != null)
+        {
+            var t = ce.Value.GetType();
+
+            // EXACT OData type match only (your condition)
+            if (t.Namespace == "Microsoft.AspNetCore.OData.Query.Container"
+                && t.DeclaringType?.Name == "LinqParameterContainer"
+                && t.Name.StartsWith("TypedLinqParameterContainer")
+                && node.Member is PropertyInfo pi
+                && t.IsGenericType
+                && t.GetGenericArguments()[0] == typeof(int))
+            {
+                var key = $"__TypedProperty_{_counter++}";
+                var value = pi.GetValue(ce.Value);
+                KustoValueCache.Values[key] = value;
+            }
+        }
+
+        return base.VisitMember(node);
+    }
+}
+
+
+public sealed class KustoEvaluatableExpressionFilter : EvaluatableExpressionFilter
+{
+    public override bool IsEvaluatableExpression(Expression expression, IModel model)
+    {
+        // if (expression is ConstantExpression ce && ce.Value != null)
+        // {
+        //     var t = ce.Value.GetType();
+        //
+        //     // exact match:
+        //     // namespace: Microsoft.AspNetCore.OData.Query.Container
+        //     // declaring type: LinqParameterContainer
+        //     // nested type name: TypedLinqParameterContainer`1
+        //     // generic arg: System.Int32
+        //     if (t.Namespace == "Microsoft.AspNetCore.OData.Query.Container"
+        //         && t.DeclaringType?.Name == "LinqParameterContainer"
+        //         && t.Name.StartsWith("TypedLinqParameterContainer")
+        //         && t.IsGenericType
+        //         && t.GetGenericArguments()[0] == typeof(int))
+        //     {
+        //         return false;
+        //     }
+        // }
+
+
+        return base.IsEvaluatableExpression(expression, model);
+    }
+
+    public KustoEvaluatableExpressionFilter(EvaluatableExpressionFilterDependencies deps)
+        : base(deps)
+    {
+    }
+}
+
+public static class KustoValueCache
+{
+    public static readonly Dictionary<string, object?> Values = new();
+
+    public static void Reset() => Values.Clear();
+}
+
+
+public class KustoQueryCompiler(
+    IQueryContextFactory queryContextFactory,
+    ICompiledQueryCache compiledQueryCache,
+    ICompiledQueryCacheKeyGenerator compiledQueryCacheKeyGenerator,
+    IDatabase database,
+    IDiagnosticsLogger<DbLoggerCategory.Query> logger,
+    ICurrentDbContext currentContext,
+    IEvaluatableExpressionFilter evaluatableExpressionFilter,
+    IModel model)
+    : QueryCompiler(queryContextFactory,
+        compiledQueryCache, compiledQueryCacheKeyGenerator, database, logger, currentContext,
+        evaluatableExpressionFilter, model)
+{
+    
+    public override Expression ExtractParameters(
+        Expression query,
+        IParameterValues parameterValues,
+        IDiagnosticsLogger<DbLoggerCategory.Query> logger,
+        bool parameterize = true,
+        bool generateContextAccessors = false)
+    {
+        // Reset for new query
+        KustoValueCache.Reset();
+
+        // Capture OData values early
+        query = new KustoODataParameterCapturer().Visit(query);
+
+        // Now no OData junk remains. Only your own constant surrogate strings.
+        return base.ExtractParameters(query, parameterValues, logger, parameterize, generateContextAccessors);
+    }
+
 }
 
 public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
@@ -74,25 +183,29 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         throw new NotImplementedException();
     }
 
-    public ResultSetMapping AppendDeleteOperation(StringBuilder commandStringBuilder, IReadOnlyModificationCommand command,
+    public ResultSetMapping AppendDeleteOperation(StringBuilder commandStringBuilder,
+        IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
         throw new NotImplementedException();
     }
 
-    public ResultSetMapping AppendInsertOperation(StringBuilder commandStringBuilder, IReadOnlyModificationCommand command,
+    public ResultSetMapping AppendInsertOperation(StringBuilder commandStringBuilder,
+        IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
         throw new NotImplementedException();
     }
 
-    public ResultSetMapping AppendUpdateOperation(StringBuilder commandStringBuilder, IReadOnlyModificationCommand command,
+    public ResultSetMapping AppendUpdateOperation(StringBuilder commandStringBuilder,
+        IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
         throw new NotImplementedException();
     }
 
-    public ResultSetMapping AppendStoredProcedureCall(StringBuilder commandStringBuilder, IReadOnlyModificationCommand command,
+    public ResultSetMapping AppendStoredProcedureCall(StringBuilder commandStringBuilder,
+        IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
         throw new NotImplementedException();

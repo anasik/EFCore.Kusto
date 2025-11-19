@@ -1,10 +1,13 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Text.RegularExpressions;
 using Azure.Core;
 using Azure.Identity;
+using EFCore.Kusto.Extensions;
 using EFCore.Kusto.Storage;
 using Kusto.Data;
+using Kusto.Data.Common;
 using Kusto.Data.Net.Client;
 
 namespace EFCore.Kusto.Data;
@@ -57,10 +60,29 @@ public sealed class KustoCommand : DbCommand
             InitialCatalog = _database
         };
 
-        using var client = KustoClientFactory.CreateCslQueryProvider(csb);
+        var client = KustoClientFactory.CreateCslQueryProvider(csb);
 
-        var reader = client.ExecuteQuery(CommandText);
-        return new KustoDataReader(reader);
+        CommandText = Regex.Replace(CommandText, @"__\w+_\d+", match =>
+        {
+            var key = match.Value;
+
+            if (!KustoValueCache.Values.TryGetValue(key, out var value))
+                return key; // not found → leave as-is
+
+            return value?.ToString() ?? "null";
+        });
+
+        var props = new ClientRequestProperties
+        {
+            ClientRequestId = $"HVMLS.{Guid.NewGuid()}"
+        };
+        // Server-side timeout (tune as needed)
+        props.SetOption(ClientRequestProperties.OptionServerTimeout, TimeSpan.FromSeconds(60));
+
+        var reader = client.ExecuteQuery(_database, CommandText, props);
+
+        var x  = new KustoDataReader(reader, client);
+        return x;
     }
 
     private async Task<string> GetKustoTokenAsync(string clusterUrl)
