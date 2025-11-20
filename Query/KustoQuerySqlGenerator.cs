@@ -148,6 +148,11 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (select.Predicate == null)
             return;
+        
+        var p = select.Predicate as SqlBinaryExpression;
+        var l = p.Left as ColumnExpression;
+        if (l?.Name == "row" && p.OperatorType == ExpressionType.LessThanOrEqual)
+            return;
 
         Sql.AppendLine();
         Sql.Append("| where ");
