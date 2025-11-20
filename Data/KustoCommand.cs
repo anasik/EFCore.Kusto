@@ -62,6 +62,8 @@ public sealed class KustoCommand : DbCommand
 
         var client = KustoClientFactory.CreateCslQueryProvider(csb);
 
+        CommandText = CommandText.Replace("| project  = COUNT(*)", "| count");
+
         var reader = client.ExecuteQuery(CommandText);
 
         return new KustoDataReader(reader, client);
