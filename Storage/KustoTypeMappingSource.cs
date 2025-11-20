@@ -9,7 +9,10 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         = new StringTypeMapping("string", DbType.String);
 
     private static readonly RelationalTypeMapping _int
-        = new IntTypeMapping("long", System.Data.DbType.Int64);
+        = new IntTypeMapping("int", System.Data.DbType.Int32);
+    
+    private static readonly RelationalTypeMapping _long
+        = new LongTypeMapping("long", System.Data.DbType.Int64);
 
     private static readonly RelationalTypeMapping _bool
         = new BoolTypeMapping("bool");
@@ -39,8 +42,11 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         if (clrType == typeof(string))
             return _string;
 
-        if (clrType == typeof(int) || clrType == typeof(long))
+        if (clrType == typeof(int))
             return _int;
+        
+        if ( clrType == typeof(long))
+            return _long;
 
         if (clrType == typeof(bool))
             return _bool;
