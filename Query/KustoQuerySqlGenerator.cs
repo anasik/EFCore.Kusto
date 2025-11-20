@@ -21,11 +21,11 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             Sql.Append("(");
             Sql.AppendLine();
         }
-        
+
         WriteFrom(select);
         WriteWhere(select);
-        WriteProjection(select);
         WriteOrderBy(select);
+        WriteProjection(select);
         WriteSkip(select);
         WriteTake(select);
 
