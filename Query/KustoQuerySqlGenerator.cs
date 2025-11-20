@@ -159,6 +159,27 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         Visit(select.Predicate);
     }
 
+    protected override Expression VisitSqlUnary(SqlUnaryExpression sqlUnaryExpression)
+    {
+        if (sqlUnaryExpression.OperatorType == ExpressionType.Equal)
+        {
+            Sql.Append($" isnull(");
+            Visit(sqlUnaryExpression.Operand);
+            Sql.Append($") ");
+            return sqlUnaryExpression;
+        }
+
+        if (sqlUnaryExpression.OperatorType == ExpressionType.NotEqual)
+        {
+            Sql.Append($" isnotnull(");
+            Visit(sqlUnaryExpression.Operand);
+            Sql.Append($") ");
+            return sqlUnaryExpression;
+        }
+
+        return base.VisitSqlUnary(sqlUnaryExpression);
+    }
+
     // ============================================================
     // PROJECT
     // ============================================================
@@ -300,6 +321,39 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         Sql.Append(name);
         return sqlParameterExpression;
+    }
+
+    protected override string GetOperator(SqlBinaryExpression binaryExpression)
+    {
+        switch (binaryExpression.OperatorType)
+        {
+            case ExpressionType.Equal:
+                return " == ";
+            case ExpressionType.And:
+            case ExpressionType.AndAlso:
+                return " and ";
+            case ExpressionType.OrElse:
+            case ExpressionType.Or:
+                return " or ";
+        }
+
+        return base.GetOperator(binaryExpression);
+    }
+
+    protected override void GenerateIn(InExpression inExpression, bool negated)
+    {
+        Visit((Expression)inExpression.Item);
+        Sql.Append(negated ? " !in (" : " in (");
+
+        for (int i = 0; i < inExpression.Values.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(", ");
+
+            Visit(inExpression.Values[i]);
+        }
+
+        Sql.Append(")");
     }
 
     private static string ToKustoLiteral(object? value)
