@@ -228,8 +228,9 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         if (select.Offset == null)
             return;
 
+        Sql.Append(", skip_index = row_number(1)");
         Sql.AppendLine();
-        Sql.Append("| skip ");
+        Sql.Append("| where skip_index > ");
         Visit(select.Offset);
     }
 
