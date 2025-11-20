@@ -8,17 +8,114 @@ namespace EFCore.Kusto.Query;
 
 public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
 {
+    private int _selectDepth = 0;
+
+    // MAIN ENTRY
     protected override Expression VisitSelect(SelectExpression select)
     {
-        // ============================================================
-        // 1. FROM (table source)
-        // ============================================================
-        if (select.Tables.Count == 0)
-            throw new NotSupportedException("Kusto requires exactly one table.");
+        bool isNested = _selectDepth > 0;
+        _selectDepth++;
 
-        var tableExpr = select.Tables[0];
+        if (isNested)
+        {
+            Sql.Append("(");
+            Sql.AppendLine();
+        }
+        
+        WriteFrom(select);
+        WriteWhere(select);
+        WriteProjection(select);
+        WriteOrderBy(select);
+        WriteSkip(select);
+        WriteTake(select);
 
-        switch (tableExpr)
+        if (isNested)
+        {
+            Sql.AppendLine();
+            Sql.Append(")");
+        }
+
+        _selectDepth--;
+        return select;
+    }
+
+    // ============================================================
+    // FROM clause
+    // ============================================================
+
+    private void WriteFrom(SelectExpression select)
+    {
+        if (select.Tables.Count == 1)
+        {
+            // normal path
+            WriteSingleFrom(select.Tables[0]);
+            return;
+        }
+
+        // multiple tables = JOIN
+        WriteJoinedFrom(select);
+    }
+
+    private void WriteJoinedFrom(SelectExpression select)
+    {
+        // LEFT side (first table)
+        var left = select.Tables[0];
+        WriteSingleFrom(left);
+
+        // assume all additional tables are joined in order (EF patterns)
+        for (int i = 1; i < select.Tables.Count; i++)
+        {
+            var right = select.Tables[i];
+
+            Sql.AppendLine();
+            Sql.Append("| join kind=leftouter (");
+            WriteSingleFrom(right);
+            Sql.Append(") on ");
+
+            WriteJoinPredicate(((LeftJoinExpression)right).JoinPredicate);
+        }
+    }
+
+    private void WriteJoinPredicate(SqlExpression predicate)
+    {
+        if (predicate is SqlBinaryExpression b && b.OperatorType == ExpressionType.Equal)
+        {
+            // left
+            WriteJoinSide(b.Left, isLeft: true);
+
+            Sql.Append(" == ");
+
+            // right
+            WriteJoinSide(b.Right, isLeft: false);
+        }
+        else
+        {
+            throw new NotSupportedException("Unsupported join predicate");
+        }
+    }
+
+    private void WriteJoinSide(SqlExpression expr, bool isLeft)
+    {
+        // EF uses ColumnExpression for join keys
+        if (expr is ColumnExpression c)
+        {
+            Sql.Append(isLeft ? "$left." : "$right.");
+            Sql.Append(c.Name);
+            return;
+        }
+
+        throw new NotSupportedException($"Unsupported join key expression: {expr.GetType().Name}");
+    }
+
+
+    private void WriteSingleFrom(TableExpressionBase table)
+    {
+        // if (select.Tables.Count != 1)
+        //     throw new NotSupportedException("Kusto requires exactly one table per select.");
+
+        // var table = select.Tables[0];
+
+        switch (table)
         {
             case TableExpression t:
                 Sql.Append(t.Table.Name);
@@ -30,113 +127,122 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 Sql.Append(")");
                 break;
 
+            case SelectExpression nested:
+                // inline nested select
+                VisitSelect(nested);
+                break;
+
+            case LeftJoinExpression left:
+                WriteSingleFrom(left.Table);
+                break;
+
             default:
-                throw new NotSupportedException(
-                    $"Unsupported table expression: {tableExpr.GetType().Name}");
+                throw new NotSupportedException($"Unsupported table expression: {table.GetType().Name}");
+        }
+    }
+
+    // ============================================================
+    // WHERE
+    // ============================================================
+    private void WriteWhere(SelectExpression select)
+    {
+        if (select.Predicate == null)
+            return;
+
+        Sql.AppendLine();
+        Sql.Append("| where ");
+        Visit(select.Predicate);
+    }
+
+    // ============================================================
+    // PROJECT
+    // ============================================================
+    private void WriteProjection(SelectExpression select)
+    {
+        if (select.Projection.Count == 0)
+            return;
+
+        bool rr = false;
+        if (select.Projection.LastOrDefault().Expression is RowNumberExpression r)
+        {
+            rr = true;
+            Sql.AppendLine();
+            Sql.Append("| serialize ");
         }
 
-        // ============================================================
-        // 2. WHERE
-        // ============================================================
-        if (select.Predicate != null)
-        {
-            Sql.AppendLine();
-            Sql.Append("| where ");
-            Visit(select.Predicate);
-        }
+        Sql.AppendLine();
+        Sql.Append("| project ");
 
-        // ============================================================
-        // 3. PROJECTION (SELECT)
-        // ============================================================
-        if (select.Projection.Count > 0)
+        for (int i = 0; i < select.Projection.Count; i++)
         {
-            Sql.AppendLine();
-            Sql.Append("| project ");
-
-            for (int i = 0; i < select.Projection.Count; i++)
+            var proj = select.Projection[i];
+            if (rr && proj.Alias == "RowVersion")
             {
-                if (i > 0) Sql.Append(", ");
-
-                var proj = select.Projection[i];
-
-                if (proj.Alias != null)
-                    Sql.Append($"{proj.Alias} = ");
-
-                Visit(proj.Expression);
+                continue;
             }
+
+            if (i > 0)
+                Sql.Append(", ");
+
+            if (proj.Alias != null)
+                Sql.Append(proj.Alias + " = ");
+
+            if (proj.Expression is RowNumberExpression)
+                Sql.Append("row_number(0)");
+            else
+                Visit(proj.Expression);
         }
+    }
 
-        // ============================================================
-        // 4. ORDER BY
-        // ============================================================
-        if (select.Orderings.Count > 0)
+    // ============================================================
+    // ORDER BY
+    // ============================================================
+    private void WriteOrderBy(SelectExpression select)
+    {
+        if (select.Orderings.Count == 0)
+            return;
+
+        Sql.AppendLine();
+        Sql.Append("| order by ");
+
+        for (int i = 0; i < select.Orderings.Count; i++)
         {
-            Sql.AppendLine();
-            Sql.Append("| order by ");
-
-            for (int i = 0; i < select.Orderings.Count; i++)
-            {
-                if (i > 0) Sql.Append(", ");
+            if (i > 0)
+                Sql.Append(", ");
 
                 Visit(select.Orderings[i].Expression);
                 Sql.Append(select.Orderings[i].IsAscending ? " asc" : " desc");
             }
         }
 
-        // ============================================================
-        // 5. SKIP
-        // ============================================================
-        if (select.Offset != null)
-        {
-            Sql.AppendLine();
-            Sql.Append("| skip ");
-            Visit(select.Offset);
-        }
-
-        // ============================================================
-        // 6. TAKE
-        // ============================================================
-        if (select.Limit != null)
-        {
-            Sql.AppendLine();
-            Sql.Append("| take ");
-            Visit(select.Limit);
-        }
-
-        return select;
-    }
-
     // ============================================================
-    // Binary expressions → map to KQL operators
+    // SKIP
     // ============================================================
-    protected override Expression VisitSqlBinary(SqlBinaryExpression b)
+    private void WriteSkip(SelectExpression select)
     {
-        Sql.Append("(");
+        if (select.Offset == null)
+            return;
 
-        Visit(b.Left);
-
-        Sql.Append(b.OperatorType switch
-        {
-            ExpressionType.Equal => " == ",
-            ExpressionType.NotEqual => " != ",
-            ExpressionType.GreaterThan => " > ",
-            ExpressionType.GreaterThanOrEqual => " >= ",
-            ExpressionType.LessThan => " < ",
-            ExpressionType.LessThanOrEqual => " <= ",
-            ExpressionType.AndAlso => " and ",
-            ExpressionType.OrElse => " or ",
-            _ => throw new NotSupportedException($"Unsupported operator: {b.OperatorType}")
-        });
-
-        Visit(b.Right);
-
-        Sql.Append(")");
-
-        return b;
+        Sql.AppendLine();
+        Sql.Append("| skip ");
+        Visit(select.Offset);
     }
 
     // ============================================================
-    // Column expressions
+    // TAKE
+    // ============================================================
+    private void WriteTake(SelectExpression select)
+    {
+        if (select.Limit == null)
+            return;
+
+        Sql.AppendLine();
+        Sql.Append("| take ");
+        Visit(select.Limit);
+    }
+
+    // ============================================================
+    // Column
     // ============================================================
     protected override Expression VisitColumn(ColumnExpression column)
     {
@@ -173,25 +279,19 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         return c;
     }
 
-    protected override Expression VisitParameter(ParameterExpression node)
-    {
-        return base.VisitParameter(node);
-    }
-
+    // ============================================================
+    // SqlParameter → substitute using cache
+    // ============================================================
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
         var name = sqlParameterExpression.Name;
 
         if (KustoValueCache.Values.TryGetValue(name, out var value))
         {
-            // Emit correct literal directly to SQL builder
             Sql.Append(ToKustoLiteral(value));
-
-            // DO NOT emit the sqlParameterExpression name
             return sqlParameterExpression;
         }
 
-        // fallback (should never hit)
         Sql.Append(name);
         return sqlParameterExpression;
     }
