@@ -70,7 +70,16 @@ public sealed class KustoDataReader : DbDataReader
     public override string GetDataTypeName(int ordinal) => _inner.GetDataTypeName(ordinal);
     public override Type GetFieldType(int ordinal) => _inner.GetFieldType(ordinal);
 
-    public override string GetString(int ordinal) => _inner.GetString(ordinal);
+    public override string GetString(int ordinal)
+    {
+        var value = _inner.GetString(ordinal);
+
+        if (string.IsNullOrEmpty(value))
+            return null;   // <--- THIS FIXES THE ODATA EXPAND BEHAVIOR
+
+        return value;
+    }
+
     public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
     public override double GetDouble(int ordinal) => ((SqlDouble)_inner.GetValue(ordinal)).Value;
