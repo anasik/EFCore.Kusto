@@ -4,7 +4,7 @@ using System.Data.Common;
 using System.Data.SqlTypes;
 using Kusto.Data.Common;
 
-namespace EFCore.Kusto.Storage;
+namespace EFCore.Kusto.Data;
 
 public sealed class KustoDataReader : DbDataReader
 {
@@ -32,7 +32,35 @@ public sealed class KustoDataReader : DbDataReader
         => Task.FromResult(GetFieldValue<T>(ordinal));
 
     public override T GetFieldValue<T>(int ordinal)
-        => (T)_inner.GetValue(ordinal);
+    {
+        var value = _inner.GetValue(ordinal);
+
+        // Handle byte[] properties (rowversion)
+        if (typeof(T) == typeof(byte[]))
+        {
+            // value can be null, "", or Base64
+            if (value == null)
+                return (T)(object)Array.Empty<byte>();
+
+            if (value is string s)
+            {
+                if (string.IsNullOrWhiteSpace(s))
+                    return (T)(object)Array.Empty<byte>();
+
+                return (T)(object)Convert.FromBase64String(s);
+            }
+
+            if (value is byte[] b)
+                return (T)(object)b;
+
+            // Any Kusto weirdness, force empty array
+            return (T)(object)Array.Empty<byte>();
+        }
+
+        // Non-binary → fallback
+        return (T)value;
+    }
+
 
     protected override void Dispose(bool disposing)
     {
