@@ -56,6 +56,9 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
         if (clrType == typeof(Guid))
             return _guid;
+        
+        if(clrType == typeof(byte[]))
+            return new ByteArrayTypeMapping("string", DbType.String); // stored as Base64 string
 
         // EF fallback
         return base.FindMapping(mappingInfo);
