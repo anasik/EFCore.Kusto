@@ -19,6 +19,11 @@ namespace EFCore.Kusto.Extensions;
 
 public static class KustoServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers the EF Core services required for the Kusto provider.
+    /// </summary>
+    /// <param name="services">The service collection to register services in.</param>
+    /// <returns>The same service collection instance for chaining.</returns>
     public static IServiceCollection AddEntityFrameworkKusto(this IServiceCollection services)
     {
         new EntityFrameworkRelationalServicesBuilder(services)

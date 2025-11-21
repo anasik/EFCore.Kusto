@@ -6,11 +6,21 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace EFCore.Kusto.Infrastructure.Internal;
 
+/// <summary>
+/// Represents the configurable options for the Kusto EF Core provider.
+/// </summary>
 public sealed class KustoOptionsExtension : RelationalOptionsExtension
 {
     private DbContextOptionsExtensionInfo _info;
 
+    /// <summary>
+    /// Gets the configured cluster URL.
+    /// </summary>
     public string? ClusterUrl { get; private set; }
+
+    /// <summary>
+    /// Gets the configured database name.
+    /// </summary>
     public string? Database { get; private set; }
 
     public KustoOptionsExtension() { }
@@ -25,6 +35,9 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     protected override RelationalOptionsExtension Clone()
         => new KustoOptionsExtension(this);
 
+    /// <summary>
+    /// Returns a copy of the extension with the cluster URL set.
+    /// </summary>
     public KustoOptionsExtension WithCluster(string cluster)
     {
         var clone = new KustoOptionsExtension(this);
@@ -32,6 +45,9 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         return clone;
     }
 
+    /// <summary>
+    /// Returns a copy of the extension with the database name set.
+    /// </summary>
     public KustoOptionsExtension WithDatabase(string db)
     {
         var clone = new KustoOptionsExtension(this);

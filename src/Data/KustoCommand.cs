@@ -12,11 +12,19 @@ using Kusto.Data.Net.Client;
 
 namespace EFCore.Kusto.Data;
 
+/// <summary>
+/// A lightweight <see cref="DbCommand"/> implementation that executes Kusto queries using the Azure SDK.
+/// </summary>
 public sealed class KustoCommand : DbCommand
 {
     private readonly string _clusterUrl;
     private readonly string _database;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="KustoCommand"/> class.
+    /// </summary>
+    /// <param name="clusterUrl">The target Kusto cluster URL.</param>
+    /// <param name="database">The database name within the cluster.</param>
     public KustoCommand(string clusterUrl, string database)
     {
         _clusterUrl = clusterUrl;
@@ -50,6 +58,11 @@ public sealed class KustoCommand : DbCommand
 
     protected override DbParameter CreateDbParameter() => new KustoParameter();
 
+    /// <summary>
+    /// Executes the command against the configured Kusto cluster and returns a <see cref="DbDataReader"/>.
+    /// </summary>
+    /// <param name="behavior">The command behavior flags.</param>
+    /// <returns>A <see cref="DbDataReader"/> that iterates over the query results.</returns>
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
         var token = GetKustoTokenAsync(_clusterUrl).Result;
@@ -69,11 +82,15 @@ public sealed class KustoCommand : DbCommand
         return new KustoDataReader(reader, client);
     }
 
+    /// <summary>
+    /// Retrieves an access token suitable for authenticating to the configured Kusto cluster.
+    /// </summary>
+    /// <param name="clusterUrl">The cluster URL to scope the token to.</param>
+    /// <returns>An access token string.</returns>
     private async Task<string> GetKustoTokenAsync(string clusterUrl)
     {
         var credential = new DefaultAzureCredential();
 
-        // Kusto requires scope: "https://<cluster>.kusto.windows.net/.default"
         string scope = $"{clusterUrl}/.default";
 
         AccessToken token = await credential.GetTokenAsync(

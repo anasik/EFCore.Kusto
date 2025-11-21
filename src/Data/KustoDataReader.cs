@@ -6,11 +6,19 @@ using Kusto.Data.Common;
 
 namespace EFCore.Kusto.Data;
 
+/// <summary>
+/// Wraps a Kusto <see cref="IDataReader"/> to present a <see cref="DbDataReader"/> surface for EF Core.
+/// </summary>
 public sealed class KustoDataReader : DbDataReader
 {
     private readonly IDataReader _inner;
-    private readonly ICslQueryProvider _client; // hold client
+    private readonly ICslQueryProvider _client;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="KustoDataReader"/> class.
+    /// </summary>
+    /// <param name="inner">The underlying Kusto data reader.</param>
+    /// <param name="client">The Kusto query provider used to issue the command.</param>
     public KustoDataReader(IDataReader inner, ICslQueryProvider client)
     {
         _inner = inner;
@@ -20,7 +28,7 @@ public sealed class KustoDataReader : DbDataReader
     public override void Close()
     {
         _inner.Close();
-        _client.Dispose(); // close the client WHEN the reader is closed
+        _client.Dispose();
     }
 
     public override bool Read() => _inner.Read();
@@ -35,10 +43,8 @@ public sealed class KustoDataReader : DbDataReader
     {
         var value = _inner.GetValue(ordinal);
 
-        // Handle byte[] properties (rowversion)
         if (typeof(T) == typeof(byte[]))
         {
-            // value can be null, "", or Base64
             if (value == null)
                 return (T)(object)Array.Empty<byte>();
 
@@ -53,11 +59,9 @@ public sealed class KustoDataReader : DbDataReader
             if (value is byte[] b)
                 return (T)(object)b;
 
-            // Any Kusto weirdness, force empty array
             return (T)(object)Array.Empty<byte>();
         }
 
-        // Non-binary → fallback
         return (T)value;
     }
 
@@ -103,7 +107,7 @@ public sealed class KustoDataReader : DbDataReader
         var value = _inner.GetString(ordinal);
 
         if (string.IsNullOrEmpty(value))
-            return null;   // <--- THIS FIXES THE ODATA EXPAND BEHAVIOR
+            return null;
 
         return value;
     }
