@@ -9,4 +9,7 @@ namespace EFCore.Kusto.Infrastructure;
 /// </summary>
 public class KustoDbContextOptionsBuilder(DbContextOptionsBuilder optionsBuilder)
     : RelationalDbContextOptionsBuilder<KustoDbContextOptionsBuilder,
-        KustoOptionsExtension>(optionsBuilder);
+        KustoOptionsExtension>(optionsBuilder)
+{
+    public virtual DbContextOptionsBuilder OptionsBuilder => base.OptionsBuilder;
+}
