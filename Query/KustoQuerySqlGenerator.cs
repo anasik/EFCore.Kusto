@@ -313,7 +313,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         var name = sqlParameterExpression.Name;
 
-        if (KustoValueCache.Values.TryGetValue(name, out var value))
+        if (KustoParameterCache.Values.TryGetValue(name, out var value))
         {
             Sql.Append(ToKustoLiteral(value));
             return sqlParameterExpression;
