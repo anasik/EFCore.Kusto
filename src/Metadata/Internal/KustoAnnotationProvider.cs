@@ -4,18 +4,21 @@ using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace EFCore.Kusto.Metadata.Internal;
 
+/// <summary>
+/// Supplies relational annotations for Kusto database artifacts.
+/// </summary>
 public sealed class KustoAnnotationProvider(RelationalAnnotationProviderDependencies dependencies)
     : RelationalAnnotationProvider(dependencies)
 {
-    // Kusto has no sequences, so return nothing.
+    /// <inheritdoc />
     public override IEnumerable<IAnnotation> For(ISequence sequence, bool designTime)
         => Array.Empty<IAnnotation>();
 
-    // Kusto has no identity columns, no value generation, return nothing.
+    /// <inheritdoc />
     public override IEnumerable<IAnnotation> For(IColumn column, bool designTime)
         => Array.Empty<IAnnotation>();
 
-    // Kusto has no table-specific annotations.
+    /// <inheritdoc />
     public override IEnumerable<IAnnotation> For(ITable table, bool designTime)
         => Array.Empty<IAnnotation>();
 }
