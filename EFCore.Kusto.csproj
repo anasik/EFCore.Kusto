@@ -2,14 +2,38 @@
 
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
+
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageId>EFCore.Kusto</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Anas Ismail Khan</Authors>
+        <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
+        <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
+        <RepositoryUrl>https://github.com/anasik/EFCore.Kusto</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/anasik/EFCore.Kusto</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath=""/>
+    </ItemGroup>
+
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.Azure.Kusto.Data" Version="14.0.2" />
-      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
-      <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8" />
+        <PackageReference Include="Microsoft.Azure.Kusto.Data" Version="14.0.2"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8"/>
     </ItemGroup>
 
 </Project>
