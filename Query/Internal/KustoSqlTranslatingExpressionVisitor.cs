@@ -48,10 +48,4 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
 
         return translated;
     }
-
-    protected override Expression VisitParameter(ParameterExpression parameterExpression)
-    {
-        return base.VisitParameter(parameterExpression);
-    }
-    
 }

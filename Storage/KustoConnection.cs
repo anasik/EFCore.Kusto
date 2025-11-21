@@ -24,20 +24,11 @@ public sealed class KustoConnection : RelationalConnection
     protected override DbConnection CreateDbConnection()
         => new FakeKustoConnection(_clusterUrl, _database);
 
-    private sealed class FakeKustoConnection : DbConnection
+    private sealed class FakeKustoConnection(string cluster, string db) : DbConnection
     {
-        private readonly string _cluster;
-        private readonly string _db;
-
-        public FakeKustoConnection(string cluster, string db)
-        {
-            _cluster = cluster;
-            _db = db;
-        }
-
         public override string ConnectionString { get; set; }
-        public override string Database => _db;
-        public override string DataSource => _cluster;
+        public override string Database => db;
+        public override string DataSource => cluster;
         public override string ServerVersion => "Kusto";
         public override ConnectionState State => ConnectionState.Open;
 
@@ -49,6 +40,6 @@ public sealed class KustoConnection : RelationalConnection
             => throw new NotSupportedException();
 
         protected override DbCommand CreateDbCommand()
-            => new KustoCommand(_cluster, _db);
+            => new KustoCommand(cluster, db);
     }
 }
