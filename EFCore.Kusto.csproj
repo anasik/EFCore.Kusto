@@ -12,9 +12,4 @@
       <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Query\Internal\" />
-      <Folder Include="Storage\" />
-    </ItemGroup>
-
 </Project>

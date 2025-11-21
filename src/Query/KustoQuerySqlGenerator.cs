@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Linq.Expressions;
-using EFCore.Kusto.Extensions;
+using EFCore.Kusto.Query.Internal;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
@@ -8,7 +8,7 @@ namespace EFCore.Kusto.Query;
 
 public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
 {
-    private int _selectDepth = 0;
+    private int _selectDepth;
 
     // MAIN ENTRY
     protected override Expression VisitSelect(SelectExpression select)
@@ -47,13 +47,38 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (select.Tables.Count == 1)
         {
-            // normal path
             WriteSingleFrom(select.Tables[0]);
             return;
         }
 
-        // multiple tables = JOIN
         WriteJoinedFrom(select);
+    }
+    
+    private void WriteSingleFrom(TableExpressionBase table)
+    {
+        switch (table)
+        {
+            case TableExpression t:
+                Sql.Append(t.Table.Name);
+                break;
+
+            case FromSqlExpression f:
+                Sql.Append("(");
+                Sql.Append(f.Sql);
+                Sql.Append(")");
+                break;
+
+            case SelectExpression nested:
+                VisitSelect(nested);
+                break;
+
+            case LeftJoinExpression left:
+                WriteSingleFrom(left.Table);
+                break;
+
+            default:
+                throw new NotSupportedException($"Unsupported table expression: {table.GetType().Name}");
+        }
     }
 
     private void WriteJoinedFrom(SelectExpression select)
@@ -105,40 +130,6 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         }
 
         throw new NotSupportedException($"Unsupported join key expression: {expr.GetType().Name}");
-    }
-
-
-    private void WriteSingleFrom(TableExpressionBase table)
-    {
-        // if (select.Tables.Count != 1)
-        //     throw new NotSupportedException("Kusto requires exactly one table per select.");
-
-        // var table = select.Tables[0];
-
-        switch (table)
-        {
-            case TableExpression t:
-                Sql.Append(t.Table.Name);
-                break;
-
-            case FromSqlExpression f:
-                Sql.Append("(");
-                Sql.Append(f.Sql);
-                Sql.Append(")");
-                break;
-
-            case SelectExpression nested:
-                // inline nested select
-                VisitSelect(nested);
-                break;
-
-            case LeftJoinExpression left:
-                WriteSingleFrom(left.Table);
-                break;
-
-            default:
-                throw new NotSupportedException($"Unsupported table expression: {table.GetType().Name}");
-        }
     }
 
     // ============================================================
@@ -236,10 +227,10 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (i > 0)
                 Sql.Append(", ");
 
-                Visit(select.Orderings[i].Expression);
-                Sql.Append(select.Orderings[i].IsAscending ? " asc" : " desc");
-            }
+            Visit(select.Orderings[i].Expression);
+            Sql.Append(select.Orderings[i].IsAscending ? " asc" : " desc");
         }
+    }
 
     // ============================================================
     // SKIP
@@ -278,7 +269,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     }
 
     // ============================================================
-    // Constants → map to KQL literals
+    // SqlConstant → Kusto literal
     // ============================================================
     protected override Expression VisitSqlConstant(SqlConstantExpression c)
     {
@@ -288,18 +279,18 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             return c;
         }
 
-        switch (c.Type.Name)
+        switch (Type.GetTypeCode(c.Value.GetType()))
         {
-            case "String":
+            case TypeCode.String:
                 Sql.Append($"\"{c.Value}\"");
                 break;
 
-            case "Boolean":
+            case TypeCode.Boolean:
                 Sql.Append((bool)c.Value ? "true" : "false");
                 break;
 
             default:
-                Sql.Append((string)c.Value);
+                Sql.Append(Convert.ToString(c.Value, CultureInfo.InvariantCulture));
                 break;
         }
 
@@ -342,7 +333,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     protected override void GenerateIn(InExpression inExpression, bool negated)
     {
-        Visit((Expression)inExpression.Item);
+        Visit(inExpression.Item);
         Sql.Append(negated ? " !in (" : " in (");
 
         for (int i = 0; i < inExpression.Values.Count; i++)
