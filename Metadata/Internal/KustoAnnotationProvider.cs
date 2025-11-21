@@ -4,14 +4,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace EFCore.Kusto.Metadata.Internal;
 
-public sealed class KustoAnnotationProvider
-    : RelationalAnnotationProvider
+public sealed class KustoAnnotationProvider(RelationalAnnotationProviderDependencies dependencies)
+    : RelationalAnnotationProvider(dependencies)
 {
-    public KustoAnnotationProvider(RelationalAnnotationProviderDependencies dependencies)
-        : base(dependencies)
-    {
-    }
-
     // Kusto has no sequences, so return nothing.
     public override IEnumerable<IAnnotation> For(ISequence sequence, bool designTime)
         => Array.Empty<IAnnotation>();

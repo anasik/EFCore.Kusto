@@ -4,10 +4,6 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace EFCore.Kusto.Infrastructure;
 
-public class KustoDbContextOptionsBuilder : RelationalDbContextOptionsBuilder<KustoDbContextOptionsBuilder,
-    KustoOptionsExtension>
-{
-    public KustoDbContextOptionsBuilder(DbContextOptionsBuilder optionsBuilder) : base(optionsBuilder)
-    {
-    }
-}
+public class KustoDbContextOptionsBuilder(DbContextOptionsBuilder optionsBuilder)
+    : RelationalDbContextOptionsBuilder<KustoDbContextOptionsBuilder,
+        KustoOptionsExtension>(optionsBuilder);

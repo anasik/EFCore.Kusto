@@ -3,16 +3,11 @@ using Microsoft.EntityFrameworkCore.Query.Internal;
 
 namespace EFCore.Kusto.Query.Internal;
 
-public sealed class KustoQueryCompilationContextFactory
-    : RelationalQueryCompilationContextFactory
+public sealed class KustoQueryCompilationContextFactory(
+    QueryCompilationContextDependencies dependencies,
+    RelationalQueryCompilationContextDependencies relationalDependencies)
+    : RelationalQueryCompilationContextFactory(dependencies, relationalDependencies)
 {
-    public KustoQueryCompilationContextFactory(
-        QueryCompilationContextDependencies dependencies,
-        RelationalQueryCompilationContextDependencies relationalDependencies)
-        : base(dependencies, relationalDependencies)
-    {
-    }
-
     public override QueryCompilationContext Create(bool async)
         => new KustoQueryCompilationContext(
             Dependencies,

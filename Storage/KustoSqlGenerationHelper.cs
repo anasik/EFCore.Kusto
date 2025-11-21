@@ -3,13 +3,9 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Storage;
 
-public sealed class KustoSqlGenerationHelper : RelationalSqlGenerationHelper
+public sealed class KustoSqlGenerationHelper(RelationalSqlGenerationHelperDependencies dependencies)
+    : RelationalSqlGenerationHelper(dependencies)
 {
-    public KustoSqlGenerationHelper(RelationalSqlGenerationHelperDependencies dependencies)
-        : base(dependencies)
-    {
-    }
-
     // ------------------------------------------------------------
     // KQL doesn’t use SQL terminators
     // ------------------------------------------------------------
@@ -21,7 +17,7 @@ public sealed class KustoSqlGenerationHelper : RelationalSqlGenerationHelper
     // ------------------------------------------------------------
     public override string DelimitIdentifier(string name) => name;
 
-    public override string DelimitIdentifier(string name, string schema) => name;
+    public override string DelimitIdentifier(string name, string? schema) => name;
 
     // ------------------------------------------------------------
     // KQL doesn’t use @p0 or :p0 style placeholders

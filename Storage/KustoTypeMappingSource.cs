@@ -9,10 +9,10 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         = new StringTypeMapping("string", DbType.String);
 
     private static readonly RelationalTypeMapping _int
-        = new IntTypeMapping("int", System.Data.DbType.Int32);
-    
+        = new IntTypeMapping("int", DbType.Int32);
+
     private static readonly RelationalTypeMapping _long
-        = new LongTypeMapping("long", System.Data.DbType.Int64);
+        = new LongTypeMapping("long", DbType.Int64);
 
     private static readonly RelationalTypeMapping _bool
         = new BoolTypeMapping("bool");
@@ -26,7 +26,10 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         = new DateTimeTypeMapping("datetime");
 
     private static readonly RelationalTypeMapping _guid
-        = new GuidTypeMapping("string"); // stored as string in Kusto params
+        = new GuidTypeMapping("string");
+
+    private static readonly RelationalTypeMapping _byte
+        = new ByteArrayTypeMapping("string", DbType.String);
 
     public KustoTypeMappingSource(
         TypeMappingSourceDependencies dependencies,
@@ -44,8 +47,8 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
         if (clrType == typeof(int))
             return _int;
-        
-        if ( clrType == typeof(long))
+
+        if (clrType == typeof(long))
             return _long;
 
         if (clrType == typeof(bool))
@@ -53,7 +56,7 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
         if (clrType == typeof(double) || clrType == typeof(float))
             return _double;
-        
+
         if (clrType == typeof(decimal))
             return _decimal;
 
@@ -62,11 +65,10 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
         if (clrType == typeof(Guid))
             return _guid;
-        
-        if(clrType == typeof(byte[]))
-            return new ByteArrayTypeMapping("string", DbType.String); // stored as Base64 string
 
-        // EF fallback
+        if (clrType == typeof(byte[]))
+            return _byte;
+
         return base.FindMapping(mappingInfo);
     }
 }
