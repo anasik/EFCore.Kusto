@@ -1,8 +1,8 @@
 # EFCore.Kusto
 
-A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)** and executing them against **Azure Data Explorer (ADX)**.
+A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)** AKA **Azure Data Explorer (ADX)**.
 
-EFCore.Kusto is engineered for real-world .NET applications that require analytical querying through EF Core while retaining the expressive power of LINQ. It is designed for use both as a standalone EF provider *and* as a backend for **ASP.NET Core OData**, where it delivers clean query translation with minimal friction.
+While I primarily built this to integrate with ASP.NET Core OData (v8+) for analytical workloads, it can be used standalone for any LINQ-to-KQL translation needs.
 
 ---
 
@@ -26,31 +26,19 @@ This provider currently supports:
 - Ordering (`OrderBy`, `ThenBy`)
 - Pagination (`Skip`, `Take`)
 - Basic join translation used by OData `$expand`
-- Server‑side parameterization (safe across async flows)
-- Literal generation for Kusto value types
+- Counts as used by OData `$count`
 
 ### OData Compatibility
-While not originally designed as an OData provider, EFCore.Kusto works well with:
+EFCore.Kusto works well with:
 
 - `$filter`
 - `$select`
 - `$orderby`
+- `$count`
 - `$skip`, `$top`
 - `$expand` (entity relationships)
 
 If specific OData query shapes cause issues, they can be addressed case‑by‑case. Community reports are welcome.
-
----
-
-## 3. Repository Structure
-
-```
-src/
-    EFCore.Kusto/           # Provider implementation
-tests/                     # Test suite (coming soon)
-```
-
-A dedicated test project will be added shortly to ensure robust behavior across edge cases and evolving LINQ patterns.
 
 ---
 
@@ -92,30 +80,14 @@ Standard OData query options are supported out of the box.
 
 ---
 
-## 6. Roadmap
-
-Short‑term:
-- Add full automated test suite.
-- Expand join and `$expand` semantics.
-- Improve edge-case translation around nested subqueries.
-- Package for NuGet.
-
-Long‑term:
-- Broader LINQ operator coverage.
-- Comprehensive OData compatibility matrix.
-- Performance instrumentation and benchmarking.
-
----
-
 ## 7. Contributing
 
 Contributions are welcome.  
 If you encounter a translation issue, please include:
 
-1. The LINQ expression.
+1. The LINQ expression (or OData URL if applicable).
 2. The expected KQL.
 3. The generated KQL (if available).
-4. Any relevant OData URL if applicable.
 
 This helps isolate translation gaps quickly.
 
@@ -131,6 +103,6 @@ EFCore.Kusto is free for commercial and open‑source use.
 
 ## 9. Disclaimer
 
-This provider is functional and under active development.  
-Kusto is not a relational engine, and certain EF Core patterns may require custom translation.  
+While this provider is functional and under active development, it is not yet battle-tested in production environments.
+
 If you encounter unexpected behavior, open an issue — the goal is full reliability for production workloads.
