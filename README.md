@@ -56,10 +56,10 @@ If specific OData query shapes cause issues, they can be addressed case‑by‑c
    });
    ```
 
-   - Use `UseManagedIdentity(clientId)` for a user-assigned identity, or omit the client id for system-assigned identities.【F:src/EFCore.Kusto/Extensions/KustoDbContextOptionsBuilderExtensions.cs†L68-L112】
-   - Use `UseApplicationAuthentication(tenantId, clientId, clientSecret)` for app registrations.【F:src/EFCore.Kusto/Extensions/KustoDbContextOptionsBuilderExtensions.cs†L84-L97】
-   - Use `UseTokenCredential(credential)` to supply any `TokenCredential` (e.g., one registered via `AddKustoManagedIdentityCredential` or `AddKustoApplicationRegistration`).【F:src/EFCore.Kusto/Extensions/KustoDbContextOptionsBuilderExtensions.cs†L102-L113】【F:src/EFCore.Kusto/Extensions/KustoServiceCollectionExtensions.cs†L55-L76】
-   - If no authentication option is configured, the provider falls back to `DefaultAzureCredential` when executing queries.【F:src/EFCore.Kusto/Data/KustoCommand.cs†L42-L55】
+   - Use `UseManagedIdentity(clientId)` for a user-assigned identity, or omit the client id for system-assigned identities.
+   - Use `UseApplicationAuthentication(tenantId, clientId, clientSecret)` for app registrations.
+   - Use `UseTokenCredential(credential)` to supply any `TokenCredential` (e.g., one registered via `AddKustoManagedIdentityCredential` or `AddKustoApplicationRegistration`).
+   - If no authentication option is configured, the provider falls back to `DefaultAzureCredential` when executing queries.
 
 2. **Optional: register shared credentials** so they can be reused when building `DbContext` options:
 
