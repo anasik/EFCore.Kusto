@@ -12,6 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\EFCore.Kusto.csproj" />
+    <ProjectReference Include="..\..\src\EFCore.Kusto\EFCore.Kusto.csproj" />
   </ItemGroup>
 </Project>
