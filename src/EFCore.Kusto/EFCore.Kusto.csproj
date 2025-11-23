@@ -15,7 +15,7 @@
         <RepositoryUrl>https://github.com/anasik/EFCore.Kusto</RepositoryUrl>
         <PackageProjectUrl>https://github.com/anasik/EFCore.Kusto</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
-        <PackageReadmeFile>README.md</PackageReadmeFile>
+<!--        <PackageReadmeFile>README.md</PackageReadmeFile>-->
         <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
 
         <IncludeSymbols>true</IncludeSymbols>
@@ -23,30 +23,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <None Include="README.md" Pack="true" PackagePath=""/>
-        <None Remove="shit.patch" />
-        <None Remove="tests\**" />
-        <None Remove="src\tests\**" />
-    </ItemGroup>
-
-
-    <ItemGroup>
         <PackageReference Include="Microsoft.Azure.Kusto.Data" Version="14.0.2"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8"/>
         <PackageReference Include="Azure.Identity" Version="1.13.0"/>
-    </ItemGroup>
-
-
-    <ItemGroup>
-      <Compile Remove="tests\**" />
-      <Compile Remove="src\tests\**" />
-    </ItemGroup>
-
-
-    <ItemGroup>
-      <EmbeddedResource Remove="tests\**" />
-      <EmbeddedResource Remove="src\tests\**" />
     </ItemGroup>
 
 </Project>
