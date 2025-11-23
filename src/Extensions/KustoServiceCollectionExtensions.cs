@@ -14,6 +14,9 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query.Internal;
 using Microsoft.EntityFrameworkCore.Update;
+using Azure.Identity;
+using Azure.Core;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace EFCore.Kusto.Extensions;
 
@@ -42,8 +45,33 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IRelationalAnnotationProvider, KustoAnnotationProvider>()
             .TryAdd<IUpdateSqlGenerator, KustoUpdateSqlGenerator>()
             .TryAdd<IQueryCompiler, KustoQueryCompiler>()
+            .TryAdd<IRelationalDatabaseCreator, KustoDatabaseCreator>()
             .TryAddCoreServices();
-        
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers a <see cref="ManagedIdentityCredential"/> for reuse when configuring the provider.
+    /// </summary>
+    public static IServiceCollection AddKustoManagedIdentityCredential(
+        this IServiceCollection services,
+        string? clientId = null)
+    {
+        services.Replace(ServiceDescriptor.Singleton<TokenCredential>(_ => new ManagedIdentityCredential(clientId)));
+        return services;
+    }
+
+    /// <summary>
+    /// Registers a <see cref="ClientSecretCredential"/> for reuse when configuring the provider.
+    /// </summary>
+    public static IServiceCollection AddKustoApplicationRegistration(
+        this IServiceCollection services,
+        string tenantId,
+        string clientId,
+        string clientSecret)
+    {
+        services.Replace(ServiceDescriptor.Singleton<TokenCredential>(_ => new ClientSecretCredential(tenantId, clientId, clientSecret)));
         return services;
     }
 }
