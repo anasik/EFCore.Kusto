@@ -1,13 +1,10 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
-using System.Text.RegularExpressions;
 using Azure.Core;
 using Azure.Identity;
-using EFCore.Kusto.Extensions;
-using EFCore.Kusto.Storage;
+using EFCore.Kusto.Infrastructure.Internal;
 using Kusto.Data;
-using Kusto.Data.Common;
 using Kusto.Data.Net.Client;
 
 namespace EFCore.Kusto.Data;
@@ -19,20 +16,47 @@ public sealed class KustoCommand : DbCommand
 {
     private readonly string _clusterUrl;
     private readonly string _database;
+    private readonly KustoOptionsExtension _options;
+    private readonly TokenCredential _credential;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KustoCommand"/> class.
     /// </summary>
     /// <param name="clusterUrl">The target Kusto cluster URL.</param>
     /// <param name="database">The database name within the cluster.</param>
-    public KustoCommand(string clusterUrl, string database)
+    public KustoCommand(string clusterUrl, string database, KustoOptionsExtension options)
     {
         _clusterUrl = clusterUrl;
         _database = database;
+        _options = options;
+
+        if (_options.AuthenticationStrategy == KustoAuthenticationStrategy.Application
+            && (string.IsNullOrWhiteSpace(_options.ApplicationTenantId)
+                || string.IsNullOrWhiteSpace(_options.ApplicationClientId)
+                || string.IsNullOrWhiteSpace(_options.ApplicationClientSecret)))
+        {
+            throw new InvalidOperationException(
+                "Application authentication requires tenant id, client id, and client secret to be configured.");
+        }
+
+        _credential = _options.AuthenticationStrategy switch
+        {
+            KustoAuthenticationStrategy.ManagedIdentity when !string.IsNullOrWhiteSpace(
+                    _options.ManagedIdentityClientId)
+                => new ManagedIdentityCredential(_options.ManagedIdentityClientId),
+            KustoAuthenticationStrategy.ManagedIdentity
+                => new ManagedIdentityCredential(),
+            KustoAuthenticationStrategy.Application
+                => new ClientSecretCredential(
+                    _options.ApplicationTenantId!,
+                    _options.ApplicationClientId!,
+                    _options.ApplicationClientSecret!),
+            _ => _options.Credential ?? new DefaultAzureCredential()
+        };
     }
 
 
-    public override string CommandText { get; set; } = "";
+    public override string CommandText { get; set; } = string.Empty;
     public override int CommandTimeout { get; set; }
     public override CommandType CommandType { get; set; } = CommandType.Text;
 
@@ -64,8 +88,16 @@ public sealed class KustoCommand : DbCommand
     /// <param name="behavior">The command behavior flags.</param>
     /// <returns>A <see cref="DbDataReader"/> that iterates over the query results.</returns>
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
+        => ExecuteDbDataReaderAsync(behavior, CancellationToken.None)
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+
+    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
+        CommandBehavior behavior,
+        CancellationToken cancellationToken)
     {
-        var token = GetKustoTokenAsync(_clusterUrl).Result;
+        var token = await GetKustoTokenAsync(_clusterUrl, cancellationToken).ConfigureAwait(false);
 
         var csb = new KustoConnectionStringBuilder($"{_clusterUrl};Fed=true")
         {
@@ -87,14 +119,13 @@ public sealed class KustoCommand : DbCommand
     /// </summary>
     /// <param name="clusterUrl">The cluster URL to scope the token to.</param>
     /// <returns>An access token string.</returns>
-    private async Task<string> GetKustoTokenAsync(string clusterUrl)
+    private async Task<string> GetKustoTokenAsync(string clusterUrl, CancellationToken cancellationToken)
     {
-        var credential = new DefaultAzureCredential();
-
         string scope = $"{clusterUrl}/.default";
 
-        AccessToken token = await credential.GetTokenAsync(
-            new TokenRequestContext(new[] { scope }));
+        AccessToken token = await _credential.GetTokenAsync(
+            new TokenRequestContext(new[] { scope }),
+            cancellationToken).ConfigureAwait(false);
 
         return token.Token;
     }

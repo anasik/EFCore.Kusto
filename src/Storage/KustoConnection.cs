@@ -2,7 +2,6 @@ using System.Data;
 using System.Data.Common;
 using EFCore.Kusto.Data;
 using EFCore.Kusto.Infrastructure.Internal;
-using Kusto.Data;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Storage;
@@ -11,20 +10,23 @@ public sealed class KustoConnection : RelationalConnection
 {
     private readonly string _clusterUrl;
     private readonly string _database;
+    private readonly KustoOptionsExtension _options;
 
     public KustoConnection(RelationalConnectionDependencies dependencies)
         : base(dependencies)
     {
-        var opts = dependencies.ContextOptions.FindExtension<KustoOptionsExtension>();
+        var opts = dependencies.ContextOptions.FindExtension<KustoOptionsExtension>()
+                   ?? throw new InvalidOperationException("Kusto options are not configured. Call UseKusto() when configuring the DbContext.");
 
         _clusterUrl = opts.ClusterUrl;
         _database = opts.Database;
+        _options = opts;
     }
 
     protected override DbConnection CreateDbConnection()
-        => new FakeKustoConnection(_clusterUrl, _database);
+        => new FakeKustoConnection(_clusterUrl, _database, _options);
 
-    private sealed class FakeKustoConnection(string cluster, string db) : DbConnection
+    private sealed class FakeKustoConnection(string cluster, string db, KustoOptionsExtension options) : DbConnection
     {
         public override string ConnectionString { get; set; }
         public override string Database => db;
@@ -40,6 +42,6 @@ public sealed class KustoConnection : RelationalConnection
             => throw new NotSupportedException();
 
         protected override DbCommand CreateDbCommand()
-            => new KustoCommand(cluster, db);
+            => new KustoCommand(cluster, db, options);
     }
 }
