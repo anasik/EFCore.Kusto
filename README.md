@@ -2,8 +2,7 @@
 
 [![NuGet Version](https://img.shields.io/nuget/v/EFCore.Kusto.svg)](https://www.nuget.org/packages/EFCore.Kusto/)
 
-A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)
-** AKA **Azure Data Explorer (ADX)**.
+A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)** AKA **Azure Data Explorer (ADX)**.
 
 While I primarily built this to integrate with ASP.NET Core OData (v8+) for analytical workloads, it can be used
 standalone for any LINQ-to-KQL translation needs.
