@@ -114,28 +114,20 @@ public sealed class KustoDataReader : DbDataReader
 
     public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
-    public override double GetDouble(int ordinal) => ((SqlDouble)_inner.GetValue(ordinal)).Value;
+    public override double GetDouble(int ordinal) => _inner.GetDouble(ordinal);
     public override decimal GetDecimal(int ordinal) => ((SqlDecimal)_inner.GetValue(ordinal)).Value;
     public override DateTime GetDateTime(int ordinal) => _inner.GetDateTime(ordinal);
     public override bool GetBoolean(int ordinal) => _inner.GetBoolean(ordinal);
-    public override float GetFloat(int ordinal) => (float)((SqlDecimal)_inner.GetValue(ordinal)).Value;
-    public override short GetInt16(int ordinal) => ((SqlInt16)_inner.GetValue(ordinal)).Value;
-    public override byte GetByte(int ordinal) => ((SqlByte)_inner.GetValue(ordinal)).Value;
-    public override Guid GetGuid(int ordinal) => Guid.Parse(_inner.GetValue(ordinal).ToString());
+    public override float GetFloat(int ordinal) => _inner.GetFloat(ordinal);
+    public override short GetInt16(int ordinal) => _inner.GetInt16(ordinal);
+    public override byte GetByte(int ordinal) => _inner.GetByte(ordinal);
+    public override Guid GetGuid(int ordinal) => _inner.GetGuid(ordinal);
 
-    public override long GetBytes(int a, long b, byte[] c, int d, int e) => throw new NotSupportedException();
+    public override long GetBytes(int a, long b, byte[] c, int d, int e) => _inner.GetBytes(a, b, c, d, e);
 
-    public override char GetChar(int ordinal)
-    {
-        throw new NotImplementedException();
-    }
+    public override char GetChar(int ordinal) => _inner.GetChar(ordinal);
 
-    public override long GetChars(int a, long b, char[] c, int d, int e) => throw new NotSupportedException();
+    public override long GetChars(int a, long b, char[] c, int d, int e) => _inner.GetChars(a, b, c, d, e);
 
-    public override int GetValues(object[] values)
-    {
-        int count = Math.Min(values.Length, FieldCount);
-        for (int i = 0; i < count; i++) values[i] = _inner.GetValue(i);
-        return count;
-    }
+    public override int GetValues(object[] values) => _inner.GetValues(values);
 }
