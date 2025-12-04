@@ -111,12 +111,23 @@ public sealed class KustoDataReader : DbDataReader
 
         return value;
     }
+    
+    public override DateTime GetDateTime(int ordinal)
+    {
+        try
+        {
+            return _inner.GetDateTime(ordinal);
+        }
+        catch (Exception)
+        {
+            return DateTime.MinValue;
+        }
+    }
 
     public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
     public override double GetDouble(int ordinal) => _inner.GetDouble(ordinal);
     public override decimal GetDecimal(int ordinal) => ((SqlDecimal)_inner.GetValue(ordinal)).Value;
-    public override DateTime GetDateTime(int ordinal) => _inner.GetDateTime(ordinal);
     public override bool GetBoolean(int ordinal) => _inner.GetBoolean(ordinal);
     public override float GetFloat(int ordinal) => _inner.GetFloat(ordinal);
     public override short GetInt16(int ordinal) => _inner.GetInt16(ordinal);
