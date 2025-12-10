@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Linq.Expressions;
 using EFCore.Kusto.Query.Internal;
+using Kusto.Cloud.Platform.Utils;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
@@ -45,6 +46,11 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     private void WriteFrom(SelectExpression select)
     {
+        if (select.Tables.Count == 0)
+        {
+            return;
+        }
+
         if (select.Tables.Count == 1)
         {
             WriteSingleFrom(select.Tables[0]);
@@ -201,13 +207,17 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (i > 0)
                 Sql.Append(", ");
 
-            if (proj.Alias != null)
+            if (!proj.Alias.IsNullOrEmpty())
                 Sql.Append(proj.Alias + " = ");
 
             if (proj.Expression is RowNumberExpression)
                 Sql.Append("row_number(0)");
             else
                 Visit(proj.Expression);
+            if (proj.Expression is ExistsExpression)
+            {
+                Sql.Append(" | count | where Count  > 0 | project 1");
+            }
         }
     }
 
