@@ -39,9 +39,28 @@ public sealed class KustoConnection : RelationalConnection
         public override void ChangeDatabase(string databaseName) { }
 
         protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
-            => throw new NotSupportedException();
+            => new FakeTransaction(this);
 
         protected override DbCommand CreateDbCommand()
             => new KustoCommand(cluster, db, options);
+    }
+
+    private sealed class FakeTransaction: DbTransaction
+    {
+        protected override DbConnection? DbConnection { get; }
+        public override IsolationLevel IsolationLevel { get; }
+        
+        public FakeTransaction(DbConnection connection)
+        {
+            DbConnection = connection;
+            IsolationLevel = IsolationLevel.ReadCommitted;
+        }
+        public override void Commit()
+        {
+        }
+
+        public override void Rollback()
+        {
+        }
     }
 }
