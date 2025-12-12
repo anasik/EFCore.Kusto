@@ -35,6 +35,7 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IRelationalTypeMappingSource, KustoTypeMappingSource>()
             .TryAdd<ISqlGenerationHelper, KustoSqlGenerationHelper>()
             .TryAdd<IRelationalConnection, KustoConnection>()
+            .TryAdd<IRelationalCommandBuilderFactory, KustoRelationalCommandBuilderFactory>()
             .TryAdd<IMemberTranslatorProvider, KustoMemberTranslatorProvider>()
             .TryAdd<IMethodCallTranslatorProvider, KustoMethodCallTranslatorProvider>()
             .TryAdd<IQuerySqlGeneratorFactory, KustoQuerySqlGeneratorFactory>()
@@ -44,7 +45,6 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IProviderConventionSetBuilder, KustoConventionSetBuilder>()
             .TryAdd<IRelationalAnnotationProvider, KustoAnnotationProvider>()
             .TryAdd<IUpdateSqlGenerator, KustoUpdateSqlGenerator>()
-            .TryAdd<IQueryCompiler, KustoQueryCompiler>()
             .TryAdd<IRelationalDatabaseCreator, KustoDatabaseCreator>()
             .TryAddCoreServices();
 
