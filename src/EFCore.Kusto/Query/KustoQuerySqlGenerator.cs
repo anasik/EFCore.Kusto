@@ -4,6 +4,7 @@ using EFCore.Kusto.Query.Internal;
 using Kusto.Cloud.Platform.Utils;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Query;
 
@@ -313,14 +314,13 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
         var name = sqlParameterExpression.Name;
+        Sql.AddParameter(
+            name,
+            name,
+            sqlParameterExpression.TypeMapping!,
+            sqlParameterExpression.IsNullable);
 
-        if (KustoParameterCache.Values.TryGetValue(name, out var value))
-        {
-            Sql.Append(ToKustoLiteral(value));
-            return sqlParameterExpression;
-        }
-
-        Sql.Append(name);
+        Sql.Append(name.Substring(2)); // remove leading __
         return sqlParameterExpression;
     }
 
