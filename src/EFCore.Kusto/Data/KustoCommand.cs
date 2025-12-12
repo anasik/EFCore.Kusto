@@ -5,6 +5,7 @@ using Azure.Core;
 using Azure.Identity;
 using EFCore.Kusto.Infrastructure.Internal;
 using Kusto.Data;
+using Kusto.Data.Common;
 using Kusto.Data.Net.Client;
 
 namespace EFCore.Kusto.Data;
@@ -63,7 +64,9 @@ public sealed class KustoCommand : DbCommand
 
     protected override DbConnection? DbConnection { get; set; }
 
-    protected override DbParameterCollection DbParameterCollection => new KustoParameterCollection();
+    private readonly KustoParameterCollection _parameters = new();
+
+    protected override DbParameterCollection DbParameterCollection => _parameters;
 
     protected override DbTransaction DbTransaction { get; set; }
     public override bool DesignTimeVisible { get; set; }
@@ -107,19 +110,39 @@ public sealed class KustoCommand : DbCommand
 
         var client = KustoClientFactory.CreateCslQueryProvider(csb);
         var admin = KustoClientFactory.CreateCslAdminProvider(csb);
+        var crp = new ClientRequestProperties();
 
         CommandText = CommandText.Replace("| project  = COUNT(*)", "| count");
         CommandText = CommandText.Replace("\n| project EXISTS ", "");
+        var isControlCommand = CommandText.TrimStart().StartsWith(".");
+
+        Func<string, IDataReader> Execute = isControlCommand
+            ? text =>
+                admin.ExecuteControlCommand(text, crp)
+            : text => client.ExecuteQuery(text, crp);
+
+        if (Parameters.Count > 0 && !isControlCommand)
+        {
+            string CommandTextHeader = "declare query_parameters (";
+            for (int i = 0; i < Parameters.Count; i++)
+            {
+                var param = Parameters[i];
+                CommandTextHeader += $"{param.ParameterName}:{GetKustoType(param.DbType)}";
+
+                if (i < Parameters.Count - 1)
+                {
+                    CommandTextHeader += ", ";
+                }
+
+                crp.SetParameter(param.ParameterName, param.Value.ToString());
+            }
+
+            CommandTextHeader += ");\n";
+            CommandText = CommandTextHeader + CommandText;
+        }
 
         IDataReader reader;
-        if (CommandText.StartsWith("."))
-        {
-            reader = admin.ExecuteControlCommand(CommandText);
-        }
-        else
-        {
-            reader = client.ExecuteQuery(CommandText);
-        }
+        reader = Execute(CommandText);
 
         return new KustoDataReader(reader, client);
     }
@@ -139,6 +162,18 @@ public sealed class KustoCommand : DbCommand
 
         return token.Token;
     }
+
+    private static string GetKustoType(DbType dbType) => dbType switch
+    {
+        DbType.AnsiString or DbType.String or DbType.StringFixedLength or DbType.AnsiStringFixedLength
+            => "string",
+        DbType.Int16 or DbType.Int32 or DbType.Int64 => "long",
+        DbType.Boolean => "bool",
+        DbType.DateTime or DbType.Date or DbType.Time => "datetime",
+        DbType.Double or DbType.Decimal or DbType.Single => "real",
+        DbType.Guid => "guid",
+        _ => "string"
+    };
 
 
     private sealed class KustoParameter : DbParameter
