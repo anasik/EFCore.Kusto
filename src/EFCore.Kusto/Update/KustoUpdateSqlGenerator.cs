@@ -42,8 +42,16 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         var table = command.TableName;
         var predicate = BuildPredicate(command);
 
-        commandStringBuilder.AppendLine($".delete table {table} records <|");
-        commandStringBuilder.AppendLine($"    {table} | where {predicate}");
+        if (commandPosition == 0)
+        {
+            commandStringBuilder.AppendLine($".delete table {table} records <|");
+            commandStringBuilder.AppendLine($"    {table} | where {predicate}");
+        }
+        else
+        {
+            commandStringBuilder.Append($" or {predicate})");
+        }
+
         requiresTransaction = false;
         return ResultSetMapping.NoResults;
     }
@@ -56,9 +64,13 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         // https://learn.microsoft.com/en-us/kusto/management/extent-tags?view=azure-data-explorer&preserve-view=true#ingest-by-extent-tags
         var table = command.TableName;
 
-        var json = BuildJsonPayload(command);
+        if (commandPosition == 0)
+        {
+            commandStringBuilder.AppendLine(
+                $".ingest inline into table {table} with (format='json') <|");
+        }
 
-        commandStringBuilder.AppendLine($".ingest inline into table {table} with (format='json') <|");
+        var json = BuildJsonPayload(command);
         commandStringBuilder.AppendLine(json);
 
         requiresTransaction = false;
@@ -70,12 +82,21 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         int commandPosition, out bool requiresTransaction)
     {
         var table = command.TableName;
-        var predicate = BuildPredicate(command); // pk + concurrency
-        var extend = BuildExtendClause(command.ColumnModifications); // new row
+        var predicate = BuildPredicate(command);
+        var extend = BuildExtendClause(command.ColumnModifications);
 
-        commandStringBuilder.AppendLine($".update table {table} delete D append A <|");
-        commandStringBuilder.AppendLine($"let D = {table} | where {predicate};");
-        commandStringBuilder.AppendLine($"let A = D | extend {extend};");
+        if (commandPosition == 0)
+        {
+            commandStringBuilder.AppendLine($".update table {table} delete D append A <|");
+            commandStringBuilder.AppendLine($"let D = {table} | where __PREDICATE__;");
+            commandStringBuilder.AppendLine($"let A = {table} | where {predicate} | extend {extend}");
+        }
+        else
+        {
+            commandStringBuilder.AppendLine(
+                $"| union ({table} | where {predicate} | extend {extend})");
+        }
+
         requiresTransaction = false;
         return ResultSetMapping.NoResults;
     }
@@ -87,7 +108,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         throw new NotImplementedException();
     }
 
-    private string BuildPredicate(IReadOnlyModificationCommand command)
+    public static string BuildPredicate(IReadOnlyModificationCommand command)
     {
         var pkParts = command.ColumnModifications
             .Where(c => c.IsKey)
