@@ -24,6 +24,9 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
     private static readonly RelationalTypeMapping _dateTime
         = new DateTimeTypeMapping("datetime");
+    
+    private static readonly RelationalTypeMapping _dateOnly
+        = new DateOnlyTypeMapping("date");
 
     private static readonly RelationalTypeMapping _guid
         = new GuidTypeMapping("string");
@@ -62,6 +65,9 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
 
         if (clrType == typeof(DateTime))
             return _dateTime;
+        
+        if (clrType == typeof(DateOnly))
+            return _dateOnly;
 
         if (clrType == typeof(Guid))
             return _guid;
