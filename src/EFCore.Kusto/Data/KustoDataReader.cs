@@ -62,6 +62,9 @@ public sealed class KustoDataReader : DbDataReader
             return (T)(object)Array.Empty<byte>();
         }
 
+        if (typeof(T) == typeof(DateOnly))
+            return (T)(object)DateOnly.FromDateTime((DateTime)value);
+
         return (T)value;
     }
 
