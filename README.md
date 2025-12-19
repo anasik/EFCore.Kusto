@@ -14,10 +14,12 @@ standalone for any LINQ-to-KQL translation needs.
 - [1. Installation](#1-installation)
 - [2. Getting Started](#2-getting-started)
 - [3. Project Goals](#3-project-goals)
-- [4. Current Capabilities](#4-current-capabilities)
-- [5. Contributing](#5-contributing)
-- [6. License](#6-license)
-- [7. Disclaimer](#7-disclaimer)
+- [4. Read Capabilities](#4-read-capabilities)
+- [5. Write Capabilities](#5-write-capabilities)
+- [6. Changelog](#6-changelog)
+- [7. Contributing](#7-contributing)
+- [8. License](#8-license)
+- [9. Disclaimer](#9-disclaimer)
 
 ---
 
@@ -83,7 +85,7 @@ Or via csproj:
 
 ---
 
-## 4. Current Capabilities
+## 4. Read Capabilities
 
 ### Query Translation
 
@@ -110,8 +112,33 @@ EFCore.Kusto works well with:
 If specific OData query shapes cause issues, they can be addressed case‑by‑case. Community reports are welcome.
 
 ---
+## 5. Write Capabilities
 
-## 5. Contributing
+EFCore.Kusto supports data modification using Kusto-native control commands.
+
+### Supported Operations
+
+- Insert (`Add`, `AddRange`) via `.ingest`
+- Update (`Update`) via `.update table`
+- Delete (`Remove`, `RemoveRange`) via `.delete table`
+
+### Batching Semantics
+
+- Commands are batched per entity type and target table
+- Read and write operations are never mixed in the same batch
+- Each batch is executed as a single Kusto command
+
+Note: Transactional guarantees and concurrency semantics are constrained by Kusto’s execution model.
+
+---
+
+## 6. Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for a detailed version history.
+
+---
+
+## 7. Contributing
 
 Contributions are welcome.  
 If you encounter a translation issue, please include:
@@ -124,7 +151,7 @@ This helps isolate translation gaps quickly.
 
 ---
 
-## 6. License
+## 8. License
 
 MIT License – simple, permissive, widely accepted.
 
@@ -132,7 +159,7 @@ EFCore.Kusto is free for commercial and open‑source use.
 
 ---
 
-## 7. Disclaimer
+## 9. Disclaimer
 
 While this provider is functional and under active development, it is not yet battle-tested in production environments.
 
