@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.1.3</Version>
+        <Version>0.1.4</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
