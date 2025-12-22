@@ -112,7 +112,7 @@ public sealed class KustoCommand : DbCommand
         var admin = KustoClientFactory.CreateCslAdminProvider(csb);
         var crp = new ClientRequestProperties();
 
-        CommandText = CommandText.Replace("| project  = COUNT(*)", "| count");
+        CommandText = CommandText.Replace("| project COUNT(*)", "| count");
         CommandText = CommandText.Replace("\n| project EXISTS ", "");
         var isControlCommand = CommandText.TrimStart().StartsWith(".");
 
