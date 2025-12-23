@@ -89,12 +89,12 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         {
             commandStringBuilder.AppendLine($".update table {table} delete D append A <|");
             commandStringBuilder.AppendLine($"let D = {table} | where __PREDICATE__;");
-            commandStringBuilder.AppendLine($"let A = {table} | where {predicate} | extend {extend}");
+            commandStringBuilder.AppendLine($"let A = union({table} | where {predicate} | extend {extend})");
         }
         else
         {
             commandStringBuilder.AppendLine(
-                $"| union ({table} | where {predicate} | extend {extend})");
+                $",({table} | where {predicate} | extend {extend})");
         }
 
         requiresTransaction = false;
