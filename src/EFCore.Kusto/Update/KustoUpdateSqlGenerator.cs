@@ -250,9 +250,20 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
 
             case DateTimeOffset dto:
                 return $"datetime({dto:O})";
+            
+            case int i:
+                return $"int({i})";
+            
+            case decimal d:
+                return $"decimal({d.ToString(CultureInfo.InvariantCulture)})";
+            
+            case double d:
+                return $"real({d.ToString(CultureInfo.InvariantCulture)})";
+            
+            case float f:
+                return $"real({f.ToString(CultureInfo.InvariantCulture)})";
 
-            case byte or sbyte or short or ushort or int or uint or long or ulong
-                or float or double or decimal:
+            case byte or sbyte or short or ushort or int or uint or long or ulong:
                 return Convert.ToString(value, CultureInfo.InvariantCulture);
 
             case System.Collections.IEnumerable e when value is not string:
