@@ -112,11 +112,11 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     {
         var pkParts = command.ColumnModifications
             .Where(c => c.IsKey)
-            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.Value ?? c.OriginalValue)}");
+            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.Value ?? c.OriginalValue, c.ColumnType)}");
 
         var concurrencyParts = command.ColumnModifications
             .Where(c => c.IsCondition && !c.IsKey && !c.Property.IsConcurrencyToken)
-            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.OriginalValue)}");
+            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.OriginalValue, c.ColumnType)}");
 
         return string.Join(" and ", pkParts.Concat(concurrencyParts));
     }
@@ -158,7 +158,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     {
         var assignments = updates
             .Where(c => c.IsWrite)
-            .Select(c => $"{c.ColumnName} = {FormatKustoLiteral(c.Value)}");
+            .Select(c => $"{c.ColumnName} = {FormatKustoLiteral(c.Value, c.ColumnType)}");
 
         return string.Join(", ", assignments);
     }
@@ -229,10 +229,28 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         }
     }
 
-    private static string FormatKustoLiteral(object? value)
+    private static string FormatKustoLiteral(object? value, string? columnType)
     {
         if (value == null || value == DBNull.Value)
-            return "null";
+        {
+            // Map common KQL types for nulls
+            return columnType switch
+            {
+                "string" => "\"\"",
+                "guid" => "guid(null)",
+                "bool" => "bool(null)",
+                "date" => "datetime(null)",
+                "datetime" => "datetime(null)",
+                "int" => "int(null)",
+                "long" => "long(null)",
+                "real" => "real(null)",
+                "decimal" => "decimal(null)",
+                "double" => "double(null)",
+                "timespan" => "timespan(null)",
+                "dynamic" => "dynamic(null)",
+                _ => "dynamic(null)"
+            };
+        }
 
         switch (value)
         {
