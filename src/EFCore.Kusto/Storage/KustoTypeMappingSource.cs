@@ -20,7 +20,7 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
     private static readonly RelationalTypeMapping _double
         = new DoubleTypeMapping("real");
 
-    private static readonly RelationalTypeMapping _decimal = new DecimalTypeMapping("real");
+    private static readonly RelationalTypeMapping _decimal = new DecimalTypeMapping("decimal");
 
     private static readonly RelationalTypeMapping _dateTime
         = new DateTimeTypeMapping("datetime");
