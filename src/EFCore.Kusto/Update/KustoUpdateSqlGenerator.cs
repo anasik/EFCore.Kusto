@@ -264,5 +264,9 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     }
 
     private static string EscapeKustoString(string s)
-        => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        => s
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
 }
