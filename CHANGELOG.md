@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.6]
+### Fixed
+- NULL handling in PATCH requests.
+- String escaping in PATCH requests.
+
 ## [0.1.5]
 ### Optimized
 - `.update` command to use less nesting and support larger batches
