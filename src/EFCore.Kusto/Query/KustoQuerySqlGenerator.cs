@@ -178,6 +178,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             return sqlUnaryExpression;
         }
 
+        if(sqlUnaryExpression.OperatorType == ExpressionType.Not)
+        {
+            Sql.Append("not (");
+            Visit(sqlUnaryExpression.Operand);
+            Sql.Append(")");
+            return sqlUnaryExpression;
+        }
+
         return base.VisitSqlUnary(sqlUnaryExpression);
     }
 
