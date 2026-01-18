@@ -1,4 +1,6 @@
 using System.Linq.Expressions;
+using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
@@ -28,6 +30,51 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
     // ------------------------------------------------------------
     protected override Expression VisitMethodCall(MethodCallExpression methodCall)
     {
+        if (methodCall.Method.IsGenericMethod &&
+            methodCall.Method.GetGenericMethodDefinition() == QueryableMethods.Contains)
+        {
+            var collectionExpr = methodCall.Arguments[0];
+            var valueExpr = methodCall.Arguments[1];
+
+            if (collectionExpr is MethodCallExpression inner
+                && inner.Method.Name == nameof(Queryable.AsQueryable)
+                && inner.Arguments.Count == 1)
+            {
+                var rawCollection = inner.Arguments[0];
+
+                if (Visit(rawCollection) is SqlExpression sqlCollection &&
+                    Visit(valueExpr) is SqlExpression sqlValue)
+                {
+                    var stringMapping = ExpressionExtensions.InferTypeMapping(sqlCollection, sqlValue);
+                    var dummyMapping = deps.SqlExpressionFactory
+                        .ApplyDefaultTypeMapping(deps.SqlExpressionFactory.Constant("", typeof(string)))
+                        .TypeMapping;
+                    sqlCollection = deps.SqlExpressionFactory.ApplyTypeMapping(sqlCollection, stringMapping);
+                    sqlValue = deps.SqlExpressionFactory.ApplyTypeMapping(sqlValue, dummyMapping);
+                    var parsedJson = deps.SqlExpressionFactory.Function(
+                        "parse_json",
+                        new SqlExpression[] { sqlCollection },
+                        nullable: true,
+                        argumentsPropagateNullability: new[] { true },
+                        typeof(object), dummyMapping);
+
+                    var arrayIndexOf = deps.SqlExpressionFactory.Function(
+                        "array_index_of",
+                        new SqlExpression[] { parsedJson, sqlValue },
+                        nullable: true,
+                        argumentsPropagateNullability: new[] { true, true },
+                        typeof(int));
+
+                    var notEqualsMinusOne = deps.SqlExpressionFactory.NotEqual(
+                        arrayIndexOf,
+                        deps.SqlExpressionFactory.Constant(-1, typeof(int))
+                    );
+
+                    return notEqualsMinusOne;
+                }
+            }
+        }
+
         var translated = base.VisitMethodCall(methodCall);
         if (translated == null)
             throw new NotSupportedException($"Unsupported method call: {methodCall.Method.Name}");
