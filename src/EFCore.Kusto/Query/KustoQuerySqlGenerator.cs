@@ -208,19 +208,21 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         Sql.AppendLine();
         Sql.Append("| project ");
 
+        var usedAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         for (int i = 0; i < select.Projection.Count; i++)
         {
             var proj = select.Projection[i];
-            if (rr && proj.Alias == "RowVersion")
-            {
-                continue;
-            }
 
             if (i > 0)
                 Sql.Append(", ");
 
-            if (!proj.Alias.IsNullOrEmpty())
-                Sql.Append(proj.Alias + " = ");
+            var alias = proj.Alias;
+            if (!alias.IsNullOrEmpty())
+            {
+                alias = MakeUniqueAlias(alias, usedAliases);
+                Sql.Append(alias + " = ");
+            }
 
             if (proj.Expression is RowNumberExpression)
                 Sql.Append("row_number(0)");
@@ -279,6 +281,19 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         Sql.AppendLine();
         Sql.Append("| take ");
         Visit(select.Limit);
+    }
+
+    private static string MakeUniqueAlias(string baseAlias, HashSet<string> usedAliases)
+    {
+        if (usedAliases.Add(baseAlias))
+            return baseAlias;
+
+        for (int i = 1;; i++)
+        {
+            var candidate = $"{baseAlias}_{i}";
+            if (usedAliases.Add(candidate))
+                return candidate;
+        }
     }
 
     // ============================================================
