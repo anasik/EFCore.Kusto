@@ -189,6 +189,37 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         return base.VisitSqlUnary(sqlUnaryExpression);
     }
 
+    protected override Expression VisitSqlBinary(SqlBinaryExpression sqlBinaryExpression)
+    {
+        var left = sqlBinaryExpression.Left;
+        var right = sqlBinaryExpression.Right;
+        var operatorType = sqlBinaryExpression.OperatorType;
+
+        if (left.TypeMapping is StringTypeMapping && right.TypeMapping is StringTypeMapping)
+        {
+            string? op = operatorType switch
+            {
+                ExpressionType.GreaterThan => "> 0 ",
+                ExpressionType.GreaterThanOrEqual => ">= 0 ",
+                ExpressionType.LessThan => "< 0 ",
+                ExpressionType.LessThanOrEqual => "<= 0 ",
+                _ => null
+            };
+
+            if (op != null)
+            {
+                Sql.Append(" strcmp(");
+                Visit(left);
+                Sql.Append(", ");
+                Visit(right);
+                Sql.Append($") {op}");
+                return sqlBinaryExpression;
+            }
+        }
+
+        return base.VisitSqlBinary(sqlBinaryExpression);
+    }
+
     // ============================================================
     // PROJECT
     // ============================================================
