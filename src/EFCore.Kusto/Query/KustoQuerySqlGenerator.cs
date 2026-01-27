@@ -12,6 +12,9 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 {
     private int _selectDepth;
     private SqlExpression? _extractedCorrelationPredicate;
+    private string? _partitionColumn;
+    private SqlExpression? _partitionLimit;
+    private List<(SqlExpression expr, bool isAscending)>? _partitionOrderings;
 
     // MAIN ENTRY
     protected override Expression VisitSelect(SelectExpression select)
@@ -121,14 +124,35 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             }
             else if (right is OuterApplyExpression outerApply)
             {
-                // For OUTER APPLY converted to LEFT JOIN, find the join predicate
-                var predicate = ExtractCorrelationPredicate(outerApply.Table);
-                if (predicate != null)
+                // For OUTER APPLY, use Kusto's partition hint with native strategy
+                // This gives us exactly N records per grouped entity
+                var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(outerApply.Table);
+                if (predicate != null && predicate is SqlBinaryExpression binPred)
                 {
-                    // Set flag so WriteWhere knows to skip this predicate
-                    _extractedCorrelationPredicate = predicate;
-                    WriteSingleFrom(right);
-                    _extractedCorrelationPredicate = null;
+                    // Extract partition key (right side of correlation - the grouping column)
+                    if (binPred.Right is ColumnExpression partitionCol)
+                    {
+                        _partitionColumn = partitionCol.Name;
+
+                        // Extract limit and orderings from the SELECT that contains the correlation predicate
+                        if (selectWithCorrelation != null)
+                        {
+                            _partitionLimit = selectWithCorrelation.Limit;
+                            _partitionOrderings = new List<(SqlExpression, bool)>(selectWithCorrelation.Orderings.Select(o => (o.Expression, o.IsAscending)));
+                            _extractedCorrelationPredicate = predicate;
+                        }
+
+                        WriteSingleFrom(right);
+
+                        _partitionColumn = null;
+                        _partitionLimit = null;
+                        _partitionOrderings = null;
+                        _extractedCorrelationPredicate = null;
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"Correlation predicate right side must be a column");
+                    }
 
                     Sql.Append(") on ");
                     WriteJoinPredicate(predicate);
@@ -209,6 +233,18 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     }
 
     /// <summary>
+    /// Extracts a correlation predicate from an APPLY expression and returns both
+    /// the predicate and the SelectExpression containing it (for correct LIMIT extraction).
+    /// </summary>
+    private (SqlExpression? predicate, SelectExpression? selectWithPredicate) ExtractCorrelationPredicateAndSelect(TableExpressionBase applyInner)
+    {
+        if (applyInner is not SelectExpression select)
+            return (null, null);
+
+        return FindCorrelationInSelectWithContext(select);
+    }
+
+    /// <summary>
     /// Recursively searches for a correlation predicate (column == column) in a SELECT's WHERE clause
     /// or in nested SELECT expressions within its FROM clause.
     /// </summary>
@@ -234,6 +270,34 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Recursively searches for a correlation predicate and returns both the predicate
+    /// and the SelectExpression that contains it (for extracting LIMIT/ORDERINGS).
+    /// </summary>
+    private (SqlExpression? predicate, SelectExpression? selectWithPredicate) FindCorrelationInSelectWithContext(SelectExpression select)
+    {
+        if (select.Predicate != null)
+        {
+            // Try to find correlation predicate in this WHERE clause
+            var found = FindCorrelationInExpression(select.Predicate);
+            if (found != null)
+                return (found, select); // Return THIS select since it has the predicate
+        }
+
+        // Not found at this level, search nested SELECTs in FROM clause
+        foreach (var table in select.Tables)
+        {
+            if (table is SelectExpression nested)
+            {
+                var (predicate, selectWithPred) = FindCorrelationInSelectWithContext(nested);
+                if (predicate != null)
+                    return (predicate, selectWithPred); // Return the nested select that has it
+            }
+        }
+
+        return (null, null);
     }
 
     /// <summary>
@@ -538,6 +602,40 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (select.Limit == null)
             return;
+
+        // If we're in partition mode (OUTER APPLY), use partition hint for the inner limit
+        if (_partitionColumn != null && _partitionLimit != null)
+        {
+            Sql.AppendLine();
+            Sql.Append("| partition hint.strategy=native by ");
+            Sql.Append(_partitionColumn);
+            Sql.Append(" (");
+
+            // Add the ordering if present
+            if (_partitionOrderings?.Count > 0)
+            {
+                Sql.Append("top ");
+                Visit(select.Limit);
+                Sql.Append(" by ");
+
+                for (int i = 0; i < _partitionOrderings.Count; i++)
+                {
+                    if (i > 0)
+                        Sql.Append(", ");
+                    Visit(_partitionOrderings[i].expr);
+                    Sql.Append(_partitionOrderings[i].isAscending ? " asc" : " desc");
+                }
+            }
+            else
+            {
+                Sql.Append("top ");
+                Visit(select.Limit);
+            }
+
+            Sql.Append(")");
+
+            return;
+        }
 
         Sql.AppendLine();
         Sql.Append("| take ");
