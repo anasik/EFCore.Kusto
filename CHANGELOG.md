@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.9]
+### Added
+- Support for OUTER APPLY and CROSS APPLY.
+
+## [0.1.8]
+### Fixed
+- Inequality comparisons on strings.
+
+## [0.1.7]
+### Fixed
+- `not` operator translation
+- Duplicate column issue in joins
+
+### Added
+- Support for `Contains`
+
 ## [0.1.6]
 ### Fixed
 - NULL handling in PATCH requests.
