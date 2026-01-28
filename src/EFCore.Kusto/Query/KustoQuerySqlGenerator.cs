@@ -11,6 +11,7 @@ namespace EFCore.Kusto.Query;
 public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
 {
     private int _selectDepth;
+    private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
 
     // MAIN ENTRY
     protected override Expression VisitSelect(SelectExpression select)
@@ -83,6 +84,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 WriteSingleFrom(left.Table);
                 break;
 
+            case OuterApplyExpression outerApply:
+                WriteSingleFrom(outerApply.Table);
+                break;
+
+            case CrossApplyExpression crossApply:
+                WriteSingleFrom(crossApply.Table);
+                break;
+
             default:
                 throw new NotSupportedException($"Unsupported table expression: {table.GetType().Name}");
         }
@@ -101,10 +110,21 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
             Sql.AppendLine();
             Sql.Append("| join kind=leftouter (");
-            WriteSingleFrom(right);
-            Sql.Append(") on ");
 
-            WriteJoinPredicate(((LeftJoinExpression)right).JoinPredicate);
+            if (right is LeftJoinExpression leftJoin)
+            {
+                WriteSingleFrom(right);
+                Sql.Append(") on ");
+                WriteJoinPredicate(leftJoin.JoinPredicate);
+            }
+            else if (_outerApplyHandler.IsApplyJoin(right))
+            {
+                _outerApplyHandler.ProcessApplyJoin(right, Sql, WriteSingleFrom, WriteJoinPredicate);
+            }
+            else
+            {
+                throw new NotSupportedException($"Unsupported join expression: {right.GetType().Name}");
+            }
         }
     }
 
@@ -155,9 +175,16 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 return;
         }
 
+        var predicateToRender = _outerApplyHandler.IsActive
+            ? _outerApplyHandler.GetCleanedPredicate(select.Predicate)
+            : select.Predicate;
+
+        if (predicateToRender == null)
+            return;
+
         Sql.AppendLine();
         Sql.Append("| where ");
-        Visit(select.Predicate);
+        Visit(predicateToRender);
     }
 
     protected override Expression VisitSqlUnary(SqlUnaryExpression sqlUnaryExpression)
@@ -264,6 +291,18 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 Sql.Append(" | count | where Count  > 0 | project 1");
             }
         }
+
+        if (_outerApplyHandler.IsActive && _outerApplyHandler.JoinKeyColumn != null)
+        {
+            bool alreadyProjected = select.Projection.Any(p =>
+                p.Expression is ColumnExpression col && col.Name == _outerApplyHandler.JoinKeyColumn);
+
+            if (!alreadyProjected)
+            {
+                Sql.Append(", ");
+                Sql.Append(_outerApplyHandler.JoinKeyColumn);
+            }
+        }
     }
 
     // ============================================================
@@ -308,6 +347,12 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (select.Limit == null)
             return;
+
+        if (_outerApplyHandler.IsActive)
+        {
+            _outerApplyHandler.WritePartitionTake(select.Limit, Sql, expr => Visit(expr));
+            return;
+        }
 
         Sql.AppendLine();
         Sql.Append("| take ");
