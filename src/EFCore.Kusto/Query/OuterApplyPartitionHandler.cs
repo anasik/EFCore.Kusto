@@ -312,9 +312,8 @@ internal class OuterApplyPartitionHandler
                 return cleanRight ?? binary.Right;
             if (cleanRight == null)
                 return cleanLeft ?? binary.Left;
-
-            if (cleanLeft != binary.Left || cleanRight != binary.Right)
-                return expr;
+            
+            return binary.Update(cleanLeft, cleanRight);
         }
 
         return expr;
