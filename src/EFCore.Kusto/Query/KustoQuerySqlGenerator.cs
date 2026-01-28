@@ -348,7 +348,6 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         if (select.Limit == null)
             return;
 
-        // If in OUTER APPLY context, let handler write partition + take
         if (_outerApplyHandler.IsActive)
         {
             _outerApplyHandler.WritePartitionTake(select.Limit, Sql, expr => Visit(expr));
