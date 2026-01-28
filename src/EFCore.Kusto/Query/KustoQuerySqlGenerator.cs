@@ -175,8 +175,10 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 return;
         }
 
-        // Get cleaned predicate (removes extracted correlation predicate if any)
-        var predicateToRender = _outerApplyHandler.GetCleanedPredicate(select.Predicate);
+        var predicateToRender = _outerApplyHandler.IsActive
+            ? _outerApplyHandler.GetCleanedPredicate(select.Predicate)
+            : select.Predicate;
+
         if (predicateToRender == null)
             return;
 
