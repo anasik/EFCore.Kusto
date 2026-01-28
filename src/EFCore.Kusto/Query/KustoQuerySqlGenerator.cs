@@ -291,6 +291,18 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 Sql.Append(" | count | where Count  > 0 | project 1");
             }
         }
+
+        if (_outerApplyHandler.IsActive && _outerApplyHandler.JoinKeyColumn != null)
+        {
+            bool alreadyProjected = select.Projection.Any(p =>
+                p.Expression is ColumnExpression col && col.Name == _outerApplyHandler.JoinKeyColumn);
+
+            if (!alreadyProjected)
+            {
+                Sql.Append(", ");
+                Sql.Append(_outerApplyHandler.JoinKeyColumn);
+            }
+        }
     }
 
     // ============================================================

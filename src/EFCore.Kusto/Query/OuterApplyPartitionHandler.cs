@@ -18,6 +18,7 @@ internal class OuterApplyPartitionHandler
     private class PartitionContext
     {
         public string Column { get; set; } = string.Empty;
+        public string? JoinKeyColumn { get; set; }  
         public List<(SqlExpression expr, bool isAscending)> Orderings { get; set; } = new();
         public SqlExpression? ExtractedCorrelationPredicate { get; set; }
     }
@@ -34,6 +35,12 @@ internal class OuterApplyPartitionHandler
     /// </summary>
     public SqlExpression? ExtractedCorrelationPredicate =>
         _contextStack.Count > 0 ? _contextStack.Peek().ExtractedCorrelationPredicate : null;
+
+    /// <summary>
+    /// Gets the join key column that must be projected in the inner SELECT (if in OUTER APPLY mode).
+    /// </summary>
+    public string? JoinKeyColumn =>
+        _contextStack.Count > 0 ? _contextStack.Peek().JoinKeyColumn : null;
 
     /// <summary>
     /// Checks if this table expression is an OUTER APPLY or CROSS APPLY.
@@ -145,13 +152,17 @@ internal class OuterApplyPartitionHandler
         if (binPred.Right is not ColumnExpression partitionCol)
             throw new NotSupportedException("Correlation predicate right side must be a column");
 
-        // Push OUTER APPLY context with partition info
+        string? joinKeyCol = null;
+        if (binPred.Right is ColumnExpression innerCol)
+            joinKeyCol = innerCol.Name;
+
         if (selectWithCorrelation != null)
         {
             var orderings = new List<(SqlExpression, bool)>(
                 selectWithCorrelation.Orderings.Select(o => (o.Expression, o.IsAscending)));
             PushOuterApplyContext(
                 partitionCol.Name,
+                joinKeyCol,
                 orderings,
                 predicate);
         }
@@ -174,9 +185,14 @@ internal class OuterApplyPartitionHandler
         if (predicate == null)
             throw new NotSupportedException("Could not extract correlation predicate from CROSS APPLY");
 
+        string? joinKeyCol = null;
+        if (predicate is SqlBinaryExpression binPred && binPred.Left is ColumnExpression innerCol)
+            joinKeyCol = innerCol.Name;
+
         // Push context to track extracted predicate (no partition for CROSS APPLY)
         PushOuterApplyContext(
             partitionColumn: "",
+            joinKeyColumn: joinKeyCol,
             partitionOrderings: new(),
             correlationPredicate: predicate);
 
@@ -340,12 +356,14 @@ internal class OuterApplyPartitionHandler
 
     private void PushOuterApplyContext(
         string partitionColumn,
+        string? joinKeyColumn,
         List<(SqlExpression, bool)> partitionOrderings,
         SqlExpression correlationPredicate)
     {
         _contextStack.Push(new PartitionContext
         {
             Column = partitionColumn,
+            JoinKeyColumn = joinKeyColumn,
             Orderings = partitionOrderings,
             ExtractedCorrelationPredicate = correlationPredicate
         });
