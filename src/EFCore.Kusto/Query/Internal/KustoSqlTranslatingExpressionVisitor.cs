@@ -75,6 +75,46 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
             }
         }
 
+        if (methodCall.Method.DeclaringType == typeof(Queryable) &&
+            (methodCall.Method.Name == nameof(Queryable.Any) || methodCall.Method.Name == nameof(Queryable.All)))
+        {
+            var collectionExpr = methodCall.Arguments[0];
+            string? columnName = null;
+
+            if (collectionExpr is MethodCallExpression outerCall &&
+                outerCall.Method.Name == nameof(Queryable.AsQueryable) &&
+                outerCall.Arguments.FirstOrDefault() is MethodCallExpression innerPropertyCall &&
+                innerPropertyCall.Method.Name == nameof(EF.Property) &&
+                innerPropertyCall.Arguments[1] is ConstantExpression colExpr)
+            {
+                columnName = colExpr.Value?.ToString();
+            }
+
+            if (columnName != null)
+            {
+                var columnSql = deps.SqlExpressionFactory.Fragment(columnName);
+                var parsedJson = deps.SqlExpressionFactory.Function(
+                    "parse_json",
+                    new SqlExpression[] { columnSql },
+                    nullable: true,
+                    argumentsPropagateNullability: new[] { true },
+                    typeof(object), dummyMapping);
+                var arrayLength = deps.SqlExpressionFactory.Function(
+                    "array_length",
+                    new SqlExpression[] { parsedJson },
+                    nullable: true,
+                    argumentsPropagateNullability: new[] { true },
+                    typeof(int));
+                var predicate = deps.SqlExpressionFactory.GreaterThan(
+                    arrayLength,
+                    deps.SqlExpressionFactory.Constant(0, typeof(int))
+                );
+                return predicate;
+            }
+
+            return base.VisitMethodCall(methodCall);
+        }
+
         var translated = base.VisitMethodCall(methodCall);
         if (translated == null)
             throw new NotSupportedException($"Unsupported method call: {methodCall.Method.Name}");
