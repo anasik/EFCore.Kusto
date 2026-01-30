@@ -30,6 +30,9 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
     // ------------------------------------------------------------
     protected override Expression VisitMethodCall(MethodCallExpression methodCall)
     {
+        var dummyMapping = deps.SqlExpressionFactory
+            .ApplyDefaultTypeMapping(deps.SqlExpressionFactory.Constant("", typeof(string)))
+            .TypeMapping;
         if (methodCall.Method.IsGenericMethod &&
             methodCall.Method.GetGenericMethodDefinition() == QueryableMethods.Contains)
         {
@@ -46,9 +49,6 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
                     Visit(valueExpr) is SqlExpression sqlValue)
                 {
                     var stringMapping = ExpressionExtensions.InferTypeMapping(sqlCollection, sqlValue);
-                    var dummyMapping = deps.SqlExpressionFactory
-                        .ApplyDefaultTypeMapping(deps.SqlExpressionFactory.Constant("", typeof(string)))
-                        .TypeMapping;
                     sqlCollection = deps.SqlExpressionFactory.ApplyTypeMapping(sqlCollection, stringMapping);
                     sqlValue = deps.SqlExpressionFactory.ApplyTypeMapping(sqlValue, dummyMapping);
                     var parsedJson = deps.SqlExpressionFactory.Function(
