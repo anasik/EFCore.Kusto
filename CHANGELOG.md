@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.0]
+### Added
+- Support for `Any` 
+
 ## [0.1.9]
 ### Added
 - Support for OUTER APPLY and CROSS APPLY.
