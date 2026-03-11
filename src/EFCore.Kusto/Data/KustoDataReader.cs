@@ -48,16 +48,28 @@ public sealed class KustoDataReader : DbDataReader
             if (value == null)
                 return (T)(object)Array.Empty<byte>();
 
+            if (value is byte[] bytes)
+                return (T)(object)bytes;
+
             if (value is string s)
             {
+                s = s.Trim();
+
                 if (string.IsNullOrWhiteSpace(s))
                     return (T)(object)Array.Empty<byte>();
 
+                if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    var hex = s[2..];
+                    return (T)(object)Convert.FromHexString(hex);
+                }
+
+                bool looksHex = s.Length % 2 == 0 && s.All(Uri.IsHexDigit);
+                if (looksHex)
+                    return (T)(object)Convert.FromHexString(s);
+
                 return (T)(object)Convert.FromBase64String(s);
             }
-
-            if (value is byte[] b)
-                return (T)(object)b;
 
             return (T)(object)Array.Empty<byte>();
         }
@@ -114,7 +126,7 @@ public sealed class KustoDataReader : DbDataReader
 
         return value;
     }
-    
+
     public override DateTime GetDateTime(int ordinal)
     {
         try
