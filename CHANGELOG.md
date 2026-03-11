@@ -2,6 +2,10 @@
 
 ## [0.2.0]
 ### Added
+- Support for Hex strings in byte arrays. 
+
+## [0.2.0]
+### Added
 - Support for `Any` 
 
 ## [0.1.9]
