@@ -59,7 +59,7 @@ public class KustoDataReaderTests
         Assert.Equal(Guid.Parse("b8e1c2c5-4a4c-4e23-9b0a-7a84397c30d4"), reader.GetGuid(reader.GetOrdinal("Guid")));
         Assert.Equal(now, reader.GetDateTime(reader.GetOrdinal("DateTime")));
         Assert.Equal(DateTime.MinValue, reader.GetDateTime(reader.GetOrdinal("DateTimeBad")));
-        Assert.Equal("[]", reader.GetString(reader.GetOrdinal("EmptyString")));
+        Assert.Equal(null, reader.GetString(reader.GetOrdinal("EmptyString")));
         Assert.True(reader.GetBoolean(reader.GetOrdinal("Boolean")));
     }
 
