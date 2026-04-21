@@ -2,10 +2,9 @@
 
 [![NuGet Version](https://img.shields.io/nuget/v/EFCore.Kusto.svg)](https://www.nuget.org/packages/EFCore.Kusto/)
 
-A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)** AKA **Azure Data Explorer (ADX)**.
+A lightweight, extensible Entity Framework Core provider for translating LINQ queries into **Kusto Query Language (KQL)**, also known as **Azure Data Explorer (ADX)**.
 
-While I primarily built this to integrate with ASP.NET Core OData (v8+) for analytical workloads, it can be used
-standalone for any LINQ-to-KQL translation needs.
+While this provider was originally built to integrate with ASP.NET Core OData (v8+) for analytical workloads, it can also be used standalone for general LINQ-to-KQL translation scenarios.
 
 ---
 
@@ -15,11 +14,12 @@ standalone for any LINQ-to-KQL translation needs.
 - [2. Getting Started](#2-getting-started)
 - [3. Project Goals](#3-project-goals)
 - [4. Read Capabilities](#4-read-capabilities)
-- [5. Write Capabilities](#5-write-capabilities)
-- [6. Changelog](#6-changelog)
-- [7. Contributing](#7-contributing)
-- [8. License](#8-license)
-- [9. Disclaimer](#9-disclaimer)
+- [5. GroupBy Support](#5-groupby-support)
+- [6. Write Capabilities](#6-write-capabilities)
+- [7. Changelog](#7-changelog)
+- [8. Contributing](#8-contributing)
+- [9. License](#9-license)
+- [10. Disclaimer](#10-disclaimer)
 
 ---
 
@@ -30,7 +30,9 @@ Install the package from NuGet:
 ```bash
 dotnet add package EFCore.Kusto
 ```
+
 Or via csproj:
+
 ```xml
 <ProjectReference Include="src/EFCore.Kusto/EFCore.Kusto.csproj" />
 ```
@@ -39,7 +41,7 @@ Or via csproj:
 
 ## 2. Getting Started
 
-1. **Register your DbContext** with the Kusto provider and pick an authentication option:
+1. Register your `DbContext` with the Kusto provider and pick an authentication option:
 
    ```csharp
    builder.Services.AddDbContext<PropertyContext>((sp, options) =>
@@ -51,15 +53,12 @@ Or via csproj:
    });
    ```
 
-    - Use `UseManagedIdentity(clientId)` for a user-assigned identity, or omit the client id for system-assigned
-      identities.
-    - Use `UseApplicationAuthentication(tenantId, clientId, clientSecret)` for app registrations.
-    - Use `UseTokenCredential(credential)` to supply any `TokenCredential` (e.g., one registered
-      via `AddKustoManagedIdentityCredential` or `AddKustoApplicationRegistration`).
-    - If no authentication option is configured, the provider falls back to `DefaultAzureCredential` when executing
-      queries.
+   - Use `UseManagedIdentity(clientId)` for a user-assigned identity, or omit the client id for a system-assigned identity.
+   - Use `UseApplicationAuthentication(tenantId, clientId, clientSecret)` for app registrations.
+   - Use `UseTokenCredential(credential)` to supply any `TokenCredential`.
+   - If no authentication option is configured, the provider falls back to `DefaultAzureCredential` when executing queries.
 
-2. **Optional: register shared credentials** so they can be reused when building `DbContext` options:
+2. Optional: register shared credentials so they can be reused when building `DbContext` options:
 
    ```csharp
    builder.Services.AddKustoManagedIdentityCredential(clientId: "<client-id>");
@@ -70,49 +69,91 @@ Or via csproj:
        clientSecret: "<client-secret>");
    ```
 
-   These helpers register a singleton `TokenCredential` you can inject when calling `UseTokenCredential`
-   inside `AddDbContext`.
-
 ---
 
 ## 3. Project Goals
 
 - Provide a reliable LINQ-to-KQL translation layer.
 - Integrate cleanly with ASP.NET Core OData (v8+).
-- Offer predictable, debuggable SQL generation.
-- Ensure correctness and performance for high‑volume analytical datasets.
+- Offer predictable, debuggable query generation.
+- Ensure correctness and performance for high-volume analytical datasets.
 - Remain lightweight with minimal runtime overhead.
 
 ---
 
 ## 4. Read Capabilities
 
-### Query Translation
-
-This provider currently supports:
+The provider currently supports these read-oriented query shapes:
 
 - `Where` filters
 - `Select` projections
-- Ordering (`OrderBy`, `ThenBy`)
-- Pagination (`Skip`, `Take`)
+- Ordering via `OrderBy` and `ThenBy`
+- Pagination via `Skip` and `Take`
 - Basic join translation used by OData `$expand`
-- Counts as used by OData `$count`
+- `Contains` over queryable in-memory collections translated to `in (...)`
+- Counts used by OData `$count`
+- Top-per-group query shapes translated through the provider's apply/partition pipeline
 
 ### OData Compatibility
 
-EFCore.Kusto works well with:
+EFCore.Kusto works well with these common OData query options:
 
 - `$filter`
 - `$select`
 - `$orderby`
 - `$count`
 - `$skip`, `$top`
-- `$expand` (entity relationships)
-
-If specific OData query shapes cause issues, they can be addressed case‑by‑case. Community reports are welcome.
+- `$expand`
 
 ---
-## 5. Write Capabilities
+
+## 5. GroupBy Support
+
+### Currently Supported
+
+This release adds **Phase 1** generic `GroupBy` support for aggregate-oriented query shapes.
+
+Supported grouped query patterns include:
+
+- `GroupBy(key).Select(g => new { g.Key, Count = g.Count() })`
+- `GroupBy(key).Select(g => new { g.Key, Sum = g.Sum(x => x.Value) })`
+- `GroupBy(key).Select(g => new { g.Key, Min = g.Min(x => x.Value) })`
+- `GroupBy(key).Select(g => new { g.Key, Max = g.Max(x => x.Value) })`
+- `GroupBy(key).Select(g => new { g.Key, Average = g.Average(x => x.Value) })`
+- Composite grouping keys
+- Ordering and limiting after grouped aggregates
+- Top-per-group queries expressed as:
+
+  ```csharp
+  query
+      .GroupBy(x => new { x.PartitionA, x.PartitionB })
+      .Select(g => g.OrderByDescending(x => x.Version).First())
+  ```
+
+  This shape is handled by a generic expression rewrite plus nested partition translation for composite keys.
+
+### Important Design Note
+
+The provider does **not** currently expose a first-class LINQ-to-`arg_max(...)` translator. Top-per-group support works by rewriting the LINQ expression into a grouped `max(...)` plus join-back shape that the provider can translate reliably.
+
+That means the current support is generic for this query family, but it is not yet a full generalized `arg_max` feature.
+
+### Out of Scope For Now
+
+The following grouped scenarios are still out of scope in this phase:
+
+- Arbitrary `GroupBy` queries that project non-key, non-aggregate expressions
+- Full general-purpose grouped subquery composition
+- `GroupBy` with unsupported aggregate operators beyond `Count`, `Sum`, `Min`, `Max`, and `Average`
+- Full direct translation to Kusto `summarize arg_max(...)`
+- General-purpose window-function translation
+- Complex post-group reshaping that depends on unsupported EF relational grouping internals
+
+If you encounter a grouped query outside this scope, the provider should fail explicitly rather than silently generating incorrect KQL.
+
+---
+
+## 6. Write Capabilities
 
 EFCore.Kusto supports data modification using Kusto-native control commands.
 
@@ -124,43 +165,45 @@ EFCore.Kusto supports data modification using Kusto-native control commands.
 
 ### Batching Semantics
 
-- Commands are batched per entity type and target table
-- Read and write operations are never mixed in the same batch
-- Each batch is executed as a single Kusto command
+- Commands are batched per entity type and target table.
+- Read and write operations are never mixed in the same batch.
+- Each batch is executed as a single Kusto command.
 
-Note: Transactional guarantees and concurrency semantics are constrained by Kusto’s execution model.
-
----
-
-## 6. Changelog
-
-See [CHANGELOG.md](./CHANGELOG.md) for a detailed version history.
+Note: Transactional guarantees and concurrency semantics are constrained by Kusto's execution model.
 
 ---
 
-## 7. Contributing
+## 7. Changelog
 
-Contributions are welcome.  
+See [CHANGELOG.md](./CHANGELOG.md) for detailed version history.
+
+---
+
+## 8. Contributing
+
+Contributions are welcome.
 If you encounter a translation issue, please include:
 
-1. The LINQ expression (or OData URL if applicable).
+1. The LINQ expression or OData URL.
 2. The expected KQL.
-3. The generated KQL (if available).
+3. The generated KQL, if available.
+4. Whether the issue is translation-time, execution-time, or result-shaping.
 
 This helps isolate translation gaps quickly.
 
 ---
 
-## 8. License
+## 9. License
 
-MIT License – simple, permissive, widely accepted.
+MIT License.
 
-EFCore.Kusto is free for commercial and open‑source use.
+EFCore.Kusto is free for commercial and open-source use.
 
 ---
 
-## 9. Disclaimer
+## 10. Disclaimer
 
-While this provider is functional and under active development, it is not yet battle-tested in production environments.
+While this provider is functional and under active development, it is not yet battle-tested across all production query shapes.
 
-If you encounter unexpected behavior, open an issue — the goal is full reliability for production workloads.
+If you encounter unexpected behavior, open an issue. The goal is full reliability for production workloads.
+

@@ -12,10 +12,6 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
     QueryableMethodTranslatingExpressionVisitor queryVisitor)
     : RelationalSqlTranslatingExpressionVisitor(deps, context, queryVisitor)
 {
-    // ------------------------------------------------------------
-    // OVERRIDE: Member Access
-    // ------------------------------------------------------------
-    // Allow EF to translate x.Property into ColumnExpression
     protected override Expression VisitMember(MemberExpression member)
     {
         var translated = base.VisitMember(member);
@@ -25,9 +21,6 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
         return translated;
     }
 
-    // ------------------------------------------------------------
-    // OVERRIDE: Method Calls (use base)
-    // ------------------------------------------------------------
     protected override Expression VisitMethodCall(MethodCallExpression methodCall)
     {
         var dummyMapping = deps.SqlExpressionFactory
@@ -122,11 +115,11 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
         return translated;
     }
 
-    // ------------------------------------------------------------
-    // OVERRIDE: Translatable Expressions
-    // ------------------------------------------------------------
     public override SqlExpression? Translate(Expression expression, bool applyDefaultTypeMapping = true)
     {
+        if (TryTranslateStructuralEquality(expression, out var structuralEquality))
+            return structuralEquality;
+
         var translated = base.Translate(expression, applyDefaultTypeMapping);
 
         if (translated is null)
@@ -135,4 +128,84 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
 
         return translated;
     }
+
+    private bool TryTranslateStructuralEquality(Expression expression, out SqlExpression? translated)
+    {
+        translated = null;
+
+        Expression? leftExpression = null;
+        Expression? rightExpression = null;
+
+        if (expression is BinaryExpression { NodeType: ExpressionType.Equal } binary)
+        {
+            leftExpression = binary.Left;
+            rightExpression = binary.Right;
+        }
+        else if (expression is MethodCallExpression methodCall &&
+                 methodCall.Method.Name == nameof(object.Equals) &&
+                 methodCall.Arguments.Count == 2)
+        {
+            leftExpression = methodCall.Arguments[0];
+            rightExpression = methodCall.Arguments[1];
+        }
+
+        if (leftExpression == null || rightExpression == null)
+            return false;
+
+        if (!TryGetStructuralComponents(leftExpression, out var leftComponents) ||
+            !TryGetStructuralComponents(rightExpression, out var rightComponents) ||
+            leftComponents.Count != rightComponents.Count)
+        {
+            return false;
+        }
+
+        SqlExpression? combined = null;
+        for (var i = 0; i < leftComponents.Count; i++)
+        {
+            var left = base.Translate(leftComponents[i], applyDefaultTypeMapping: true);
+            var right = base.Translate(rightComponents[i], applyDefaultTypeMapping: true);
+            if (left == null || right == null)
+                return false;
+
+            var next = deps.SqlExpressionFactory.Equal(left, right);
+            combined = combined == null ? next : deps.SqlExpressionFactory.AndAlso(combined, next);
+        }
+
+        translated = combined;
+        return translated != null;
+    }
+
+    private static bool TryGetStructuralComponents(Expression expression, out IReadOnlyList<Expression> components)
+    {
+        expression = UnwrapConvert(expression);
+
+        if (expression is NewExpression newExpression)
+        {
+            components = newExpression.Arguments;
+            return true;
+        }
+
+        if (expression is MemberInitExpression memberInit)
+        {
+            components = memberInit.Bindings
+                .OfType<MemberAssignment>()
+                .Select(binding => binding.Expression)
+                .ToArray();
+            return true;
+        }
+
+        components = Array.Empty<Expression>();
+        return false;
+    }
+
+    private static Expression UnwrapConvert(Expression expression)
+    {
+        while (expression is UnaryExpression { NodeType: ExpressionType.Convert } unary)
+        {
+            expression = unary.Operand;
+        }
+
+        return expression;
+    }
 }
+

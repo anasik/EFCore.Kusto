@@ -15,12 +15,12 @@ namespace EFCore.Kusto.Query;
 /// </summary>
 internal class OuterApplyPartitionHandler
 {
-    private class PartitionContext
+    private sealed class PartitionContext
     {
-        public string Column { get; set; } = string.Empty;
-        public string? JoinKeyColumn { get; set; }  
+        public List<string> PartitionColumns { get; } = new();
+        public List<string> JoinKeyColumns { get; } = new();
         public List<(SqlExpression expr, bool isAscending)> Orderings { get; set; } = new();
-        public SqlExpression? ExtractedCorrelationPredicate { get; set; }
+        public List<SqlExpression> ExtractedCorrelationPredicates { get; } = new();
     }
 
     private readonly Stack<PartitionContext> _contextStack = new();
@@ -31,16 +31,10 @@ internal class OuterApplyPartitionHandler
     public bool IsActive => _contextStack.Count > 0;
 
     /// <summary>
-    /// Gets the currently extracted correlation predicate (if any).
+    /// Gets the join key columns that must be projected in the inner SELECT (if in APPLY mode).
     /// </summary>
-    public SqlExpression? ExtractedCorrelationPredicate =>
-        _contextStack.Count > 0 ? _contextStack.Peek().ExtractedCorrelationPredicate : null;
-
-    /// <summary>
-    /// Gets the join key column that must be projected in the inner SELECT (if in OUTER APPLY mode).
-    /// </summary>
-    public string? JoinKeyColumn =>
-        _contextStack.Count > 0 ? _contextStack.Peek().JoinKeyColumn : null;
+    public IReadOnlyList<string> JoinKeyColumns =>
+        _contextStack.Count > 0 ? _contextStack.Peek().JoinKeyColumns : Array.Empty<string>();
 
     /// <summary>
     /// Checks if this table expression is an OUTER APPLY or CROSS APPLY.
@@ -73,21 +67,26 @@ internal class OuterApplyPartitionHandler
     }
 
     /// <summary>
-    /// Cleans the WHERE clause by removing extracted correlation predicate.
+    /// Cleans the WHERE clause by removing extracted correlation predicates.
     /// Returns null if predicate was the entire WHERE, otherwise returns cleaned predicate.
     /// </summary>
     public SqlExpression? GetCleanedPredicate(SqlExpression? predicate)
     {
-        if (predicate == null || ExtractedCorrelationPredicate == null)
+        if (predicate == null || _contextStack.Count == 0)
             return predicate;
 
-        return RemoveCorrelationFromPredicate(predicate, ExtractedCorrelationPredicate);
+        var cleaned = predicate;
+        foreach (var correlation in _contextStack.Peek().ExtractedCorrelationPredicates)
+        {
+            cleaned = RemoveCorrelationFromPredicate(cleaned, correlation);
+        }
+
+        return cleaned;
     }
 
     /// <summary>
     /// Writes the partition hint and outer limit clauses if in OUTER APPLY mode.
-    /// Generates: | partition hint.strategy=native by {column} (top {limit} by {orderings})
-    ///            | take {outerLimit}
+    /// For composite keys, nested partitions are emitted to preserve the per-group semantics.
     /// </summary>
     public void WritePartitionTake(
         SqlExpression outerLimit,
@@ -98,43 +97,40 @@ internal class OuterApplyPartitionHandler
             return;
 
         var context = _contextStack.Peek();
-
-        // Only partition if we have a partition column (OUTER APPLY case)
-        if (string.IsNullOrEmpty(context.Column))
+        if (context.PartitionColumns.Count == 0)
             return;
 
-        // Write partition hint with per-group limit
         sql.AppendLine();
-        sql.Append("| partition hint.strategy=native by ");
-        sql.Append(context.Column);
-        sql.Append(" (");
+
+        for (var i = 0; i < context.PartitionColumns.Count; i++)
+        {
+            sql.Append("| partition hint.strategy=native by ");
+            sql.Append(context.PartitionColumns[i]);
+            sql.Append(" (");
+            sql.AppendLine();
+        }
+
+        sql.Append("top ");
+        visitExpression(outerLimit);
 
         if (context.Orderings.Count > 0)
         {
-            sql.Append("top ");
-            visitExpression(outerLimit);
             sql.Append(" by ");
-
-            for (int i = 0; i < context.Orderings.Count; i++)
+            for (var i = 0; i < context.Orderings.Count; i++)
             {
                 if (i > 0)
                     sql.Append(", ");
+
                 visitExpression(context.Orderings[i].expr);
                 sql.Append(context.Orderings[i].isAscending ? " asc" : " desc");
             }
         }
-        else
+
+        for (var i = 0; i < context.PartitionColumns.Count; i++)
         {
-            sql.Append("top ");
-            visitExpression(outerLimit);
+            sql.Append(")");
         }
-
-        sql.Append(")");
     }
-
-    // ============================================================
-    // PRIVATE: OUTER APPLY / CROSS APPLY PROCESSING
-    // ============================================================
 
     private void ProcessOuterApply(
         OuterApplyExpression outerApply,
@@ -142,29 +138,27 @@ internal class OuterApplyPartitionHandler
         Action<TableExpressionBase> writeSingleFrom,
         Action<SqlExpression> writeJoinPredicate)
     {
-        var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(outerApply.Table);
-        if (predicate == null)
+        var (predicates, selectWithCorrelation) = ExtractCorrelationPredicatesAndSelect(outerApply.Table);
+        if (predicates.Count == 0)
             throw new NotSupportedException("Could not extract correlation predicate from OUTER APPLY");
 
-        if (predicate is not SqlBinaryExpression binPred)
-            throw new NotSupportedException("Expected binary expression for correlation predicate");
+        var partitionColumns = new List<string>();
+        var joinKeyColumns = new List<string>();
+        foreach (var predicate in predicates)
+        {
+            var innerColumn = TryGetInnerCorrelationColumn(predicate);
+            if (innerColumn == null)
+                throw new NotSupportedException("Correlation predicate must compare outer and inner columns.");
 
-        if (binPred.Right is not ColumnExpression partitionCol)
-            throw new NotSupportedException("Correlation predicate right side must be a column");
-
-        string? joinKeyCol = null;
-        if (binPred.Right is ColumnExpression innerCol)
-            joinKeyCol = innerCol.Name;
+            partitionColumns.Add(innerColumn.Name);
+            joinKeyColumns.Add(innerColumn.Name);
+        }
 
         if (selectWithCorrelation != null)
         {
             var orderings = new List<(SqlExpression, bool)>(
                 selectWithCorrelation.Orderings.Select(o => (o.Expression, o.IsAscending)));
-            PushOuterApplyContext(
-                partitionCol.Name,
-                joinKeyCol,
-                orderings,
-                predicate);
+            PushOuterApplyContext(partitionColumns, joinKeyColumns, orderings, predicates);
         }
 
         writeSingleFrom(outerApply);
@@ -172,7 +166,7 @@ internal class OuterApplyPartitionHandler
         PopOuterApplyContext();
 
         sql.Append(") on ");
-        writeJoinPredicate(predicate);
+        writeJoinPredicate(CombinePredicates(predicates)!);
     }
 
     private void ProcessCrossApply(
@@ -181,55 +175,61 @@ internal class OuterApplyPartitionHandler
         Action<TableExpressionBase> writeSingleFrom,
         Action<SqlExpression> writeJoinPredicate)
     {
-        var predicate = ExtractCorrelationPredicate(crossApply.Table);
-        if (predicate == null)
+        var predicates = ExtractCorrelationPredicates(crossApply.Table);
+        if (predicates.Count == 0)
             throw new NotSupportedException("Could not extract correlation predicate from CROSS APPLY");
 
-        string? joinKeyCol = null;
-        if (predicate is SqlBinaryExpression binPred && binPred.Left is ColumnExpression innerCol)
-            joinKeyCol = innerCol.Name;
+        var joinKeyColumns = predicates
+            .Select(TryGetInnerCorrelationColumn)
+            .Where(column => column != null)
+            .Select(column => column!.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        // Push context to track extracted predicate (no partition for CROSS APPLY)
         PushOuterApplyContext(
-            partitionColumn: "",
-            joinKeyColumn: joinKeyCol,
+            partitionColumns: Array.Empty<string>(),
+            joinKeyColumns,
             partitionOrderings: new(),
-            correlationPredicate: predicate);
+            correlationPredicates: predicates);
 
         writeSingleFrom(crossApply);
 
         PopOuterApplyContext();
 
         sql.Append(") on ");
-        writeJoinPredicate(predicate);
+        writeJoinPredicate(CombinePredicates(predicates)!);
     }
 
-    // ============================================================
-    // PRIVATE: CORRELATION PREDICATE EXTRACTION
-    // ============================================================
-
-    private SqlExpression? ExtractCorrelationPredicate(TableExpressionBase applyInner)
+    private static ColumnExpression? TryGetInnerCorrelationColumn(SqlExpression predicate)
     {
-        if (applyInner is not SelectExpression select)
+        if (predicate is not SqlBinaryExpression binary || binary.OperatorType != ExpressionType.Equal)
             return null;
 
-        return FindCorrelationInSelect(select);
+        return binary.Right as ColumnExpression ?? binary.Left as ColumnExpression;
     }
 
-    private (SqlExpression? predicate, SelectExpression? selectWithPredicate) ExtractCorrelationPredicateAndSelect(TableExpressionBase applyInner)
+    private List<SqlExpression> ExtractCorrelationPredicates(TableExpressionBase applyInner)
     {
         if (applyInner is not SelectExpression select)
-            return (null, null);
+            return new List<SqlExpression>();
 
-        return FindCorrelationInSelectWithContext(select);
+        return FindCorrelationPredicatesInSelect(select);
     }
 
-    private SqlExpression? FindCorrelationInSelect(SelectExpression select)
+    private (List<SqlExpression> predicates, SelectExpression? selectWithPredicate) ExtractCorrelationPredicatesAndSelect(TableExpressionBase applyInner)
+    {
+        if (applyInner is not SelectExpression select)
+            return (new List<SqlExpression>(), null);
+
+        return FindCorrelationPredicatesInSelectWithContext(select);
+    }
+
+    private List<SqlExpression> FindCorrelationPredicatesInSelect(SelectExpression select)
     {
         if (select.Predicate != null)
         {
-            var found = FindCorrelationInExpression(select.Predicate);
-            if (found != null)
+            var found = FindCorrelationPredicatesInExpression(select.Predicate);
+            if (found.Count > 0)
                 return found;
         }
 
@@ -237,21 +237,21 @@ internal class OuterApplyPartitionHandler
         {
             if (table is SelectExpression nested)
             {
-                var found = FindCorrelationInSelect(nested);
-                if (found != null)
+                var found = FindCorrelationPredicatesInSelect(nested);
+                if (found.Count > 0)
                     return found;
             }
         }
 
-        return null;
+        return new List<SqlExpression>();
     }
 
-    private (SqlExpression? predicate, SelectExpression? selectWithPredicate) FindCorrelationInSelectWithContext(SelectExpression select)
+    private (List<SqlExpression> predicates, SelectExpression? selectWithPredicate) FindCorrelationPredicatesInSelectWithContext(SelectExpression select)
     {
         if (select.Predicate != null)
         {
-            var found = FindCorrelationInExpression(select.Predicate);
-            if (found != null)
+            var found = FindCorrelationPredicatesInExpression(select.Predicate);
+            if (found.Count > 0)
                 return (found, select);
         }
 
@@ -259,39 +259,40 @@ internal class OuterApplyPartitionHandler
         {
             if (table is SelectExpression nested)
             {
-                var (predicate, selectWithPred) = FindCorrelationInSelectWithContext(nested);
-                if (predicate != null)
-                    return (predicate, selectWithPred);
+                var (predicates, selectWithPredicate) = FindCorrelationPredicatesInSelectWithContext(nested);
+                if (predicates.Count > 0)
+                    return (predicates, selectWithPredicate);
             }
         }
 
-        return (null, null);
+        return (new List<SqlExpression>(), null);
     }
 
-    private SqlExpression? FindCorrelationInExpression(SqlExpression expr)
+    private List<SqlExpression> FindCorrelationPredicatesInExpression(SqlExpression expr)
+    {
+        var predicates = new List<SqlExpression>();
+        CollectCorrelationPredicates(expr, predicates);
+        return predicates;
+    }
+
+    private void CollectCorrelationPredicates(SqlExpression expr, List<SqlExpression> predicates)
     {
         if (expr is not SqlBinaryExpression binary)
-            return null;
+            return;
 
         if (binary.OperatorType == ExpressionType.Equal &&
             binary.Left is ColumnExpression &&
             binary.Right is ColumnExpression)
         {
-            return binary;
+            predicates.Add(binary);
+            return;
         }
 
         if (IsLogicalOperator(binary.OperatorType))
         {
-            var leftResult = FindCorrelationInExpression(binary.Left);
-            if (leftResult != null)
-                return leftResult;
-
-            var rightResult = FindCorrelationInExpression(binary.Right);
-            if (rightResult != null)
-                return rightResult;
+            CollectCorrelationPredicates(binary.Left, predicates);
+            CollectCorrelationPredicates(binary.Right, predicates);
         }
-
-        return null;
     }
 
     private static bool IsLogicalOperator(ExpressionType opType) =>
@@ -301,11 +302,7 @@ internal class OuterApplyPartitionHandler
         opType == ExpressionType.OrElse ||
         opType == ExpressionType.Not;
 
-    // ============================================================
-    // PRIVATE: PREDICATE MANIPULATION
-    // ============================================================
-
-    private SqlExpression? RemoveCorrelationFromPredicate(SqlExpression expr, SqlExpression correlation)
+    private SqlExpression? RemoveCorrelationFromPredicate(SqlExpression? expr, SqlExpression correlation)
     {
         if (expr is not SqlBinaryExpression binary)
             return expr;
@@ -328,7 +325,7 @@ internal class OuterApplyPartitionHandler
                 return cleanRight ?? binary.Right;
             if (cleanRight == null)
                 return cleanLeft ?? binary.Left;
-            
+
             return binary.Update(cleanLeft, cleanRight);
         }
 
@@ -347,31 +344,49 @@ internal class OuterApplyPartitionHandler
         if (expr1 is ColumnExpression c1 && expr2 is ColumnExpression c2)
             return c1.Name == c2.Name;
 
-        return object.ReferenceEquals(expr1, expr2);
+        return ReferenceEquals(expr1, expr2);
     }
 
-    // ============================================================
-    // PRIVATE: CONTEXT MANAGEMENT
-    // ============================================================
-
     private void PushOuterApplyContext(
-        string partitionColumn,
-        string? joinKeyColumn,
+        IEnumerable<string> partitionColumns,
+        IEnumerable<string> joinKeyColumns,
         List<(SqlExpression, bool)> partitionOrderings,
-        SqlExpression correlationPredicate)
+        IEnumerable<SqlExpression> correlationPredicates)
     {
-        _contextStack.Push(new PartitionContext
+        var context = new PartitionContext
         {
-            Column = partitionColumn,
-            JoinKeyColumn = joinKeyColumn,
-            Orderings = partitionOrderings,
-            ExtractedCorrelationPredicate = correlationPredicate
-        });
+            Orderings = partitionOrderings
+        };
+
+        context.PartitionColumns.AddRange(partitionColumns.Where(column => !string.IsNullOrWhiteSpace(column)));
+        context.JoinKeyColumns.AddRange(joinKeyColumns.Where(column => !string.IsNullOrWhiteSpace(column)).Distinct(StringComparer.OrdinalIgnoreCase));
+        context.ExtractedCorrelationPredicates.AddRange(correlationPredicates);
+
+        _contextStack.Push(context);
     }
 
     private void PopOuterApplyContext()
     {
         if (_contextStack.Count > 0)
             _contextStack.Pop();
+    }
+
+    private static SqlExpression? CombinePredicates(IReadOnlyList<SqlExpression> predicates)
+    {
+        if (predicates.Count == 0)
+            return null;
+
+        var combined = predicates[0];
+        for (var i = 1; i < predicates.Count; i++)
+        {
+            combined = new SqlBinaryExpression(
+                ExpressionType.AndAlso,
+                combined,
+                predicates[i],
+                combined.Type,
+                combined.TypeMapping ?? predicates[i].TypeMapping);
+        }
+
+        return combined;
     }
 }
