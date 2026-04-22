@@ -11,6 +11,7 @@ namespace EFCore.Kusto.Query;
 public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
 {
     private int _selectDepth;
+    private int _joinRewriteCounter;
     private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
     private readonly HashSet<string> _currentJoinLeftAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _currentJoinRightAliases = new(StringComparer.OrdinalIgnoreCase);
@@ -122,20 +123,26 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (right is LeftJoinExpression leftJoin)
             {
                 CaptureJoinAliases(leftJoin.JoinPredicate);
+                var joinRewrite = BuildJoinRewrite(leftJoin.JoinPredicate);
+                WriteJoinLeftNormalizations(joinRewrite);
                 Sql.AppendLine();
                 Sql.Append("| join kind=leftouter (");
                 WriteSingleFrom(leftJoin.Table);
+                WriteJoinRightNormalizations(joinRewrite);
                 Sql.Append(") on ");
-                WriteJoinPredicate(leftJoin.JoinPredicate);
+                WriteJoinPredicate(joinRewrite);
             }
             else if (right is InnerJoinExpression innerJoin)
             {
                 CaptureJoinAliases(innerJoin.JoinPredicate);
+                var joinRewrite = BuildJoinRewrite(innerJoin.JoinPredicate);
+                WriteJoinLeftNormalizations(joinRewrite);
                 Sql.AppendLine();
                 Sql.Append("| join kind=inner (");
                 WriteSingleFrom(innerJoin.Table);
+                WriteJoinRightNormalizations(joinRewrite);
                 Sql.Append(") on ");
-                WriteJoinPredicate(innerJoin.JoinPredicate);
+                WriteJoinPredicate(joinRewrite);
             }
             else if (_outerApplyHandler.IsApplyJoin(right))
             {
@@ -147,6 +154,75 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             {
                 throw new NotSupportedException($"Unsupported join expression: {right.GetType().Name}");
             }
+        }
+    }
+
+    private JoinRewritePlan BuildJoinRewrite(SqlExpression predicate)
+    {
+        var plan = new JoinRewritePlan();
+        FlattenJoinPredicate(predicate, plan);
+        return plan;
+    }
+
+    private void FlattenJoinPredicate(SqlExpression predicate, JoinRewritePlan plan)
+    {
+        if (predicate is SqlBinaryExpression binary &&
+            binary.OperatorType is ExpressionType.And or ExpressionType.AndAlso)
+        {
+            FlattenJoinPredicate(binary.Left, plan);
+            FlattenJoinPredicate(binary.Right, plan);
+            return;
+        }
+
+        if (TryMatchNullSafeJoinEquality(predicate, out var nullSafeLeft, out var nullSafeRight))
+        {
+            var alias = $"__kusto_join_{_joinRewriteCounter}_{plan.Terms.Count}";
+            plan.LeftNormalizations.Add(new JoinNormalization(alias, nullSafeLeft!));
+            plan.RightNormalizations.Add(new JoinNormalization(alias, nullSafeRight!));
+            plan.Terms.Add(JoinRewriteTerm.ForSynthetic(alias));
+            return;
+        }
+
+        if (TryMatchJoinEqualityColumns(predicate, out var leftColumn, out var rightColumn))
+        {
+            plan.Terms.Add(JoinRewriteTerm.ForColumns(leftColumn!, rightColumn!));
+            return;
+        }
+
+        throw new NotSupportedException("Kusto joins only support equality predicates combined with 'and'.");
+    }
+
+    private void WriteJoinLeftNormalizations(JoinRewritePlan plan)
+    {
+        if (plan.LeftNormalizations.Count == 0)
+            return;
+
+        _joinRewriteCounter++;
+        Sql.AppendLine();
+        Sql.Append("| extend ");
+        WriteJoinNormalizations(plan.LeftNormalizations);
+    }
+
+    private void WriteJoinRightNormalizations(JoinRewritePlan plan)
+    {
+        if (plan.RightNormalizations.Count == 0)
+            return;
+
+        Sql.AppendLine();
+        Sql.Append("| extend ");
+        WriteJoinNormalizations(plan.RightNormalizations);
+    }
+
+    private void WriteJoinNormalizations(IReadOnlyList<JoinNormalization> normalizations)
+    {
+        for (var i = 0; i < normalizations.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(", ");
+
+            Sql.Append(normalizations[i].Alias);
+            Sql.Append(" = ");
+            WriteNormalizedJoinSourceExpression(normalizations[i].Expression);
         }
     }
 
@@ -186,6 +262,33 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     private void WriteJoinPredicate(SqlExpression predicate)
         => WriteJoinPredicate(predicate, parentOperator: null);
+
+    private void WriteJoinPredicate(JoinRewritePlan plan)
+    {
+        for (var i = 0; i < plan.Terms.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(" and ");
+
+            WriteJoinPredicate(plan.Terms[i]);
+        }
+    }
+
+    private void WriteJoinPredicate(JoinRewriteTerm term)
+    {
+        if (term.SyntheticAlias != null)
+        {
+            Sql.Append("$left.");
+            Sql.Append(term.SyntheticAlias);
+            Sql.Append(" == $right.");
+            Sql.Append(term.SyntheticAlias);
+            return;
+        }
+
+        WriteJoinSide(term.LeftColumn!, isLeft: true);
+        Sql.Append(" == ");
+        WriteJoinSide(term.RightColumn!, isLeft: false);
+    }
 
     private void WriteJoinPredicate(SqlExpression predicate, ExpressionType? parentOperator)
     {
@@ -246,6 +349,79 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         throw new NotSupportedException($"Unsupported join predicate: {predicate.GetType().Name}");
     }
 
+    private static bool TryMatchNullSafeJoinEquality(
+        SqlExpression predicate,
+        out ColumnExpression? leftColumn,
+        out ColumnExpression? rightColumn)
+    {
+        leftColumn = null;
+        rightColumn = null;
+
+        if (predicate is not SqlBinaryExpression orBinary ||
+            orBinary.OperatorType is not ExpressionType.Or and not ExpressionType.OrElse)
+        {
+            return false;
+        }
+
+        return TryMatchNullSafeJoinEquality(orBinary.Left, orBinary.Right, out leftColumn, out rightColumn)
+               || TryMatchNullSafeJoinEquality(orBinary.Right, orBinary.Left, out leftColumn, out rightColumn);
+    }
+
+    private static bool TryMatchNullSafeJoinEquality(
+        SqlExpression equalityCandidate,
+        SqlExpression bothNullCandidate,
+        out ColumnExpression? leftColumn,
+        out ColumnExpression? rightColumn)
+    {
+        leftColumn = null;
+        rightColumn = null;
+
+        if (!TryMatchJoinEqualityColumns(equalityCandidate, out leftColumn, out rightColumn))
+            return false;
+
+        return TryMatchBothNullColumns(bothNullCandidate, leftColumn, rightColumn);
+    }
+
+    private static bool TryMatchJoinEqualityColumns(
+        SqlExpression expression,
+        out ColumnExpression? leftColumn,
+        out ColumnExpression? rightColumn)
+    {
+        leftColumn = null;
+        rightColumn = null;
+
+        if (expression is not SqlBinaryExpression { OperatorType: ExpressionType.Equal } equality)
+            return false;
+
+        leftColumn = UnwrapJoinColumn(equality.Left);
+        rightColumn = UnwrapJoinColumn(equality.Right);
+        return leftColumn != null && rightColumn != null;
+    }
+
+    private static bool TryMatchBothNullColumns(
+        SqlExpression expression,
+        ColumnExpression leftColumn,
+        ColumnExpression rightColumn)
+    {
+        if (expression is not SqlBinaryExpression andBinary ||
+            andBinary.OperatorType is not ExpressionType.And and not ExpressionType.AndAlso)
+        {
+            return false;
+        }
+
+        return (IsNullCheckForColumn(andBinary.Left, leftColumn) && IsNullCheckForColumn(andBinary.Right, rightColumn))
+               || (IsNullCheckForColumn(andBinary.Left, rightColumn) && IsNullCheckForColumn(andBinary.Right, leftColumn));
+    }
+
+    private static bool IsNullCheckForColumn(SqlExpression expression, ColumnExpression expectedColumn)
+    {
+        if (expression is not SqlUnaryExpression { OperatorType: ExpressionType.Equal } unary)
+            return false;
+
+        var actualColumn = UnwrapJoinColumn(unary.Operand);
+        return actualColumn != null && string.Equals(actualColumn.Name, expectedColumn.Name, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ExpressionType NormalizeLogicalOperator(ExpressionType operatorType)
         => operatorType is ExpressionType.And or ExpressionType.AndAlso ? ExpressionType.AndAlso : ExpressionType.OrElse;
 
@@ -289,6 +465,13 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         }
 
         throw new NotSupportedException($"Unsupported join key expression: {expr.GetType().Name}");
+    }
+
+    private void WriteNormalizedJoinSourceExpression(SqlExpression expr)
+    {
+        Sql.Append("coalesce(tostring(");
+        Visit(UnwrapConversions(expr));
+        Sql.Append("), \"__EFCORE_KUSTO_NULL__\")");
     }
 
     private void WriteWhere(SelectExpression select)
@@ -829,6 +1012,34 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (usedAliases.Add(candidate))
                 return candidate;
         }
+    }
+
+    private sealed class JoinRewritePlan
+    {
+        public List<JoinNormalization> LeftNormalizations { get; } = new();
+        public List<JoinNormalization> RightNormalizations { get; } = new();
+        public List<JoinRewriteTerm> Terms { get; } = new();
+    }
+
+    private sealed record JoinNormalization(string Alias, SqlExpression Expression);
+
+    private sealed class JoinRewriteTerm
+    {
+        private JoinRewriteTerm(string? syntheticAlias, ColumnExpression? leftColumn, ColumnExpression? rightColumn)
+        {
+            SyntheticAlias = syntheticAlias;
+            LeftColumn = leftColumn;
+            RightColumn = rightColumn;
+        }
+
+        public string? SyntheticAlias { get; }
+        public ColumnExpression? LeftColumn { get; }
+        public ColumnExpression? RightColumn { get; }
+
+        public static JoinRewriteTerm ForSynthetic(string alias) => new(alias, null, null);
+
+        public static JoinRewriteTerm ForColumns(ColumnExpression leftColumn, ColumnExpression rightColumn)
+            => new(null, leftColumn, rightColumn);
     }
 }
 

@@ -137,10 +137,11 @@ public class GroupByAndArgMaxTranslationTests
         var kql = Normalize(query.ToQueryString());
 
         Assert.Contains("| summarize Order = max(Version) by PartitionKey = PartitionKey, SecondaryKey = SecondaryKey", kql);
+        Assert.Contains("| extend __kusto_join_0_0 = coalesce(tostring(PartitionKey), \"__EFCORE_KUSTO_NULL__\"), __kusto_join_0_1 = coalesce(tostring(SecondaryKey), \"__EFCORE_KUSTO_NULL__\")", kql);
         Assert.Contains("| join kind=inner", kql);
-        Assert.Contains("($left.PartitionKey == $right.PartitionKey or (isnull($left.PartitionKey) and isnull($right.PartitionKey)))", kql);
-        Assert.Contains("($left.SecondaryKey == $right.SecondaryKey or (isnull($left.SecondaryKey) and isnull($right.SecondaryKey)))", kql);
+        Assert.Contains("$left.__kusto_join_0_0 == $right.__kusto_join_0_0 and $left.__kusto_join_0_1 == $right.__kusto_join_0_1", kql);
         Assert.Contains("$left.Version == $right.Order", kql);
+        Assert.DoesNotContain(" or ", kql);
         Assert.Contains("| order by Version asc", kql);
         Assert.Contains("| take", kql);
     }
