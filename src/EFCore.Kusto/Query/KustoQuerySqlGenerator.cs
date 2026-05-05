@@ -416,11 +416,16 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
         var name = sqlParameterExpression.Name;
-        Sql.AddParameter(
-            name,
-            name,
-            sqlParameterExpression.TypeMapping!,
-            sqlParameterExpression.IsNullable);
+        var existing = Sql.Parameters.FirstOrDefault(d => d.InvariantName == name);
+
+        if (existing == null)
+        {
+            Sql.AddParameter(
+                name,
+                name,
+                sqlParameterExpression.TypeMapping!,
+                sqlParameterExpression.IsNullable);
+        }
 
         Sql.Append(name.Substring(2)); // remove leading __
         return sqlParameterExpression;
