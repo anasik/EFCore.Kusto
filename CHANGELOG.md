@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.2.0]
+## [0.2.2]
+### Fixed
+- `KustoQuerySqlGenerator` when the same parameter is used multiple times in a query.
+
+## [0.2.1]
 ### Added
 - Support for Hex strings in byte arrays. 
 
