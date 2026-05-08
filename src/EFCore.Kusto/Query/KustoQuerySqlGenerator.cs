@@ -12,6 +12,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 {
     private int _selectDepth;
     private int _joinRewriteCounter;
+    private bool _inSummarizeEmission;
     private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
     private readonly HashSet<string> _currentJoinLeftAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _currentJoinRightAliases = new(StringComparer.OrdinalIgnoreCase);
@@ -535,28 +536,35 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         Sql.AppendLine();
         Sql.Append("| summarize ");
 
-        var wroteAny = false;
-        for (var i = 0; i < aggregateProjections.Count; i++)
+        _inSummarizeEmission = true;
+        try
         {
-            if (wroteAny)
-                Sql.Append(", ");
-
-            WriteAggregateProjection(aggregateProjections[i]);
-            wroteAny = true;
-        }
-
-        if (groupingProjections.Count > 0)
-        {
-            if (wroteAny)
-                Sql.Append(" by ");
-
-            for (var i = 0; i < groupingProjections.Count; i++)
+            var wroteAny = false;
+            for (var i = 0; i < aggregateProjections.Count; i++)
             {
-                if (i > 0)
+                if (wroteAny)
                     Sql.Append(", ");
 
-                WriteGroupedKey(groupingProjections[i]);
+                WriteAggregateProjection(aggregateProjections[i]);
+                wroteAny = true;
             }
+
+            if (groupingProjections.Count > 0)
+            {
+                Sql.Append(wroteAny ? " by " : "by ");
+
+                for (var i = 0; i < groupingProjections.Count; i++)
+                {
+                    if (i > 0)
+                        Sql.Append(", ");
+
+                    WriteGroupedKey(groupingProjections[i]);
+                }
+            }
+        }
+        finally
+        {
+            _inSummarizeEmission = false;
         }
     }
 
@@ -674,7 +682,9 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     protected override Expression VisitSqlFunction(SqlFunctionExpression sqlFunctionExpression)
     {
-        if (TryGetAggregateFunction(sqlFunctionExpression, out var aggregateFunction) && TryGetAggregateFunctionName(aggregateFunction.Name, out var kustoName))
+        if (_inSummarizeEmission
+            && TryGetAggregateFunction(sqlFunctionExpression, out var aggregateFunction)
+            && TryGetAggregateFunctionName(aggregateFunction.Name, out var kustoName))
         {
             Sql.Append(kustoName);
             Sql.Append("(");
@@ -799,7 +809,16 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         if (select.Offset == null)
             return;
 
-        Sql.Append(", skip_index = row_number(1)");
+        if (select.GroupBy.Count > 0)
+        {
+            Sql.AppendLine();
+            Sql.Append("| extend skip_index = row_number(1)");
+        }
+        else
+        {
+            Sql.Append(", skip_index = row_number(1)");
+        }
+
         Sql.AppendLine();
         Sql.Append("| where skip_index > ");
         Visit(select.Offset);

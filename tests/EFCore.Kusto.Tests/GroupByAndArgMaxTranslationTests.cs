@@ -123,6 +123,41 @@ public class GroupByAndArgMaxTranslationTests
     }
 
     [Fact]
+    public void Group_by_key_only_projection_emits_summarize_by_clause()
+    {
+        using var context = CreateContext();
+
+        var query = context.Measurements
+            .GroupBy(m => m.Category)
+            .Select(g => g.Key);
+
+        var kql = Normalize(query.ToQueryString());
+
+        Assert.Contains("| summarize by Category = Category", kql);
+        Assert.DoesNotContain("| summarize Category = Category ", kql);
+    }
+
+    [Fact]
+    public void Group_by_skip_take_emits_extend_skip_index_step()
+    {
+        using var context = CreateContext();
+
+        var query = context.Measurements
+            .GroupBy(m => m.Category)
+            .Select(g => new { Category = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .Skip(5)
+            .Take(10);
+
+        var kql = Normalize(query.ToQueryString());
+
+        Assert.Contains("| summarize Count = count() by Category = Category", kql);
+        Assert.Contains("| extend skip_index = row_number(1)", kql);
+        Assert.Contains("| where skip_index >", kql);
+        Assert.DoesNotContain(", skip_index = row_number(1)", kql);
+    }
+
+    [Fact]
     public void Top_per_group_query_translates_to_grouped_max_plus_join()
     {
         using var context = CreateContext();

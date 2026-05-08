@@ -1,37 +1,15 @@
-# .NET build output
-bin/
-obj/
-
-# Visual Studio
-.vs/
-*.user
-*.suo
-*.userprefs
-*.sln.docstates
-
-# JetBrains Rider / ReSharper
-.idea/
-*.DotSettings.user
-_ReSharper*/
-
-# Test & coverage output
-[Tt]est[Rr]esult*/
-*.coverage
-*.coveragexml
-coverage*.json
-coverage*.xml
-coverage*.info
-
-# NuGet
-*.nupkg
-*.snupkg
-.nuget/
-packages/
-
-# OS artifacts
-.DS_Store
-Thumbs.db
-
-# Editor / logs
-*.log
-*.tmp
+/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs
+/obj/Debug/net8.0/EFCore.Kusto.AssemblyInfo.cs
+/obj/Debug/net8.0/EFCore.Kusto.AssemblyInfoInputs.cache
+/obj/Debug/net8.0/EFCore.Kusto.assets.cache
+/obj/Debug/net8.0/EFCore.Kusto.csproj.AssemblyReference.cache
+/obj/Debug/net8.0/EFCore.Kusto.GeneratedMSBuildEditorConfig.editorconfig
+/obj/Debug/net8.0/EFCore.Kusto.GlobalUsings.g.cs
+/obj/EFCore.Kusto.csproj.nuget.dgspec.json
+/obj/EFCore.Kusto.csproj.nuget.g.props
+/obj/EFCore.Kusto.csproj.nuget.g.targets
+/obj/project.assets.json
+/obj/project.nuget.cache
+/obj/project.packagespec.json
+/obj/rider.project.model.nuget.info
+/obj/rider.project.restore.info
