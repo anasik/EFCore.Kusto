@@ -15,11 +15,12 @@ standalone for any LINQ-to-KQL translation needs.
 - [2. Getting Started](#2-getting-started)
 - [3. Project Goals](#3-project-goals)
 - [4. Read Capabilities](#4-read-capabilities)
-- [5. Write Capabilities](#5-write-capabilities)
-- [6. Changelog](#6-changelog)
-- [7. Contributing](#7-contributing)
-- [8. License](#8-license)
-- [9. Disclaimer](#9-disclaimer)
+- [5. GroupBy Support](#5-groupby-support)
+- [6. Write Capabilities](#6-write-capabilities)
+- [7. Changelog](#7-changelog)
+- [8. Contributing](#8-contributing)
+- [9. License](#9-license)
+- [10. Disclaimer](#10-disclaimer)
 
 ---
 
@@ -112,7 +113,25 @@ EFCore.Kusto works well with:
 If specific OData query shapes cause issues, they can be addressed case‑by‑case. Community reports are welcome.
 
 ---
-## 5. Write Capabilities
+
+## 5. GroupBy Support
+
+This provider supports aggregate-oriented `GroupBy` query shapes:
+
+- `GroupBy(key).Select(g => new { g.Key, Count = g.Count(), Sum = g.Sum(x => x.Value), ... })`
+- Composite grouping keys
+- Ordering, `Skip`, and `Take` after grouped aggregates
+- Top-per-group queries expressed as `GroupBy(...).Select(g => g.OrderByDescending(...).First())`
+
+Supported aggregates: `Count`, `Sum`, `Min`, `Max`, `Average`.
+
+Top-per-group support works by rewriting the LINQ expression into a grouped `max(...)` plus join-back shape rather than translating to Kusto's `arg_max(...)`.
+
+Unsupported grouped shapes (non-key/non-aggregate projections, aggregates beyond the five above, direct `arg_max` translation, general window functions) fail explicitly rather than silently emitting incorrect KQL.
+
+---
+
+## 6. Write Capabilities
 
 EFCore.Kusto supports data modification using Kusto-native control commands.
 
@@ -132,13 +151,13 @@ Note: Transactional guarantees and concurrency semantics are constrained by Kust
 
 ---
 
-## 6. Changelog
+## 7. Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for a detailed version history.
 
 ---
 
-## 7. Contributing
+## 8. Contributing
 
 Contributions are welcome.  
 If you encounter a translation issue, please include:
@@ -151,7 +170,7 @@ This helps isolate translation gaps quickly.
 
 ---
 
-## 8. License
+## 9. License
 
 MIT License – simple, permissive, widely accepted.
 
@@ -159,7 +178,7 @@ EFCore.Kusto is free for commercial and open‑source use.
 
 ---
 
-## 9. Disclaimer
+## 10. Disclaimer
 
 While this provider is functional and under active development, it is not yet battle-tested in production environments.
 

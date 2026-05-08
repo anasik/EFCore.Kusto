@@ -40,6 +40,7 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IMethodCallTranslatorProvider, KustoMethodCallTranslatorProvider>()
             .TryAdd<IQuerySqlGeneratorFactory, KustoQuerySqlGeneratorFactory>()
             .TryAdd<IQueryCompilationContextFactory, KustoQueryCompilationContextFactory>()
+            .TryAdd<IQueryTranslationPreprocessorFactory, KustoQueryTranslationPreprocessorFactory>()
             .TryAdd<IRelationalSqlTranslatingExpressionVisitorFactory, KustoSqlTranslatingExpressionVisitorFactory>()
             .TryAdd<IModificationCommandBatchFactory, KustoModificationCommandBatchFactory>()
             .TryAdd<IProviderConventionSetBuilder, KustoConventionSetBuilder>()

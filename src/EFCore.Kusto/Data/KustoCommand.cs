@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Linq;
 using Azure.Core;
 using Azure.Identity;
 using EFCore.Kusto.Infrastructure.Internal;
@@ -112,8 +113,7 @@ public sealed class KustoCommand : DbCommand
         var admin = KustoClientFactory.CreateCslAdminProvider(csb);
         var crp = new ClientRequestProperties();
 
-        CommandText = CommandText.Replace("| project COUNT(*)", "| count");
-        CommandText = CommandText.Replace("\n| project EXISTS ", "");
+        CommandText = PrepareCommandText(CommandText, Parameters, crp);
         var isControlCommand = CommandText.TrimStart().StartsWith(".");
 
         Func<string, IDataReader> Execute = isControlCommand
@@ -121,30 +121,7 @@ public sealed class KustoCommand : DbCommand
                 admin.ExecuteControlCommand(text, crp)
             : text => client.ExecuteQuery(text, crp);
 
-        if (Parameters.Count > 0 && !isControlCommand)
-        {
-            string CommandTextHeader = "declare query_parameters (";
-            for (int i = 0; i < Parameters.Count; i++)
-            {
-                var param = Parameters[i];
-                CommandTextHeader += $"{param.ParameterName}:{GetKustoType(param.DbType)}";
-
-                if (i < Parameters.Count - 1)
-                {
-                    CommandTextHeader += ", ";
-                }
-
-                crp.SetParameter(param.ParameterName, param.Value.ToString());
-            }
-
-            CommandTextHeader += ");\n";
-            CommandText = CommandTextHeader + CommandText;
-        }
-
-        IDataReader reader;
-        reader = Execute(CommandText);
-
-        return new KustoDataReader(reader, client);
+        return new KustoDataReader(Execute(CommandText), client);
     }
 
     /// <summary>
@@ -175,6 +152,141 @@ public sealed class KustoCommand : DbCommand
         _ => "string"
     };
 
+    internal static string PrepareCommandText(
+        string commandText,
+        DbParameterCollection parameters,
+        ClientRequestProperties requestProperties)
+    {
+        var normalizedText = commandText
+            .Replace("| project COUNT(*)", "| count")
+            .Replace("\n| project EXISTS ", "");
+
+        if (parameters.Count == 0 || normalizedText.TrimStart().StartsWith("."))
+            return normalizedText;
+
+        var uniqueParameters = new List<(string Name, DbType DbType, object? Value)>();
+        var parameterIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            if (parameters[i] is not DbParameter parameter)
+                continue;
+
+            var normalizedName = NormalizeParameterName(parameter.ParameterName);
+            var parameterValue = NormalizeParameterValue(parameter.DbType, parameter.Value);
+
+            if (parameterIndexByName.TryGetValue(normalizedName, out var existingIndex))
+            {
+                var existing = uniqueParameters[existingIndex];
+                if (existing.DbType != parameter.DbType ||
+                    !Equals(existing.Value, parameterValue))
+                {
+                    throw new InvalidOperationException(
+                        $"Duplicate Kusto parameter '{normalizedName}' was generated with conflicting definitions.");
+                }
+
+                continue;
+            }
+
+            parameterIndexByName[normalizedName] = uniqueParameters.Count;
+            uniqueParameters.Add((normalizedName, parameter.DbType, parameterValue));
+        }
+
+        for (var i = 0; i < uniqueParameters.Count; i++)
+        {
+            ApplyParameter(
+                requestProperties,
+                uniqueParameters[i].Name,
+                uniqueParameters[i].DbType,
+                uniqueParameters[i].Value);
+        }
+
+        var header = "declare query_parameters ("
+                     + string.Join(
+                         ", ",
+                         uniqueParameters.Select(parameter => $"{parameter.Name}:{GetKustoType(parameter.DbType)}"))
+                     + ");\n";
+
+        return header + normalizedText;
+    }
+
+    private static string NormalizeParameterName(string parameterName)
+    {
+        if (parameterName.StartsWith("__", StringComparison.Ordinal))
+            return parameterName[2..];
+
+        if (parameterName.StartsWith("@__", StringComparison.Ordinal))
+            return parameterName[3..];
+
+        if (parameterName.StartsWith("@", StringComparison.Ordinal))
+            return parameterName[1..];
+
+        return parameterName;
+    }
+
+    internal static object? NormalizeParameterValue(DbType dbType, object? value)
+    {
+        if (value is null or DBNull)
+        {
+            return null;
+        }
+
+        return dbType switch
+        {
+            DbType.Int16 or DbType.Int32 or DbType.Int64 => Convert.ToInt64(value),
+            DbType.Boolean => Convert.ToBoolean(value),
+            DbType.Double or DbType.Decimal or DbType.Single => Convert.ToDouble(value),
+            DbType.Guid => value is Guid guid ? guid : Guid.Parse(value.ToString()!),
+            DbType.DateTime or DbType.Date => value is DateTime dateTime
+                ? dateTime
+                : Convert.ToDateTime(value),
+            DbType.Time => value is TimeSpan timeSpan
+                ? timeSpan
+                : TimeSpan.Parse(value.ToString()!),
+            _ => value.ToString()
+        };
+    }
+
+    internal static void ApplyParameter(
+        ClientRequestProperties requestProperties,
+        string parameterName,
+        DbType dbType,
+        object? value)
+    {
+        switch (dbType)
+        {
+            case DbType.Int16:
+            case DbType.Int32:
+            case DbType.Int64:
+                requestProperties.SetParameter(parameterName, value is null ? null : Convert.ToInt64(value));
+                break;
+            case DbType.Boolean:
+                requestProperties.SetParameter(parameterName, value as bool? ?? (value is null ? null : Convert.ToBoolean(value)));
+                break;
+            case DbType.Double:
+            case DbType.Decimal:
+            case DbType.Single:
+                requestProperties.SetParameter(parameterName, value is null ? null : Convert.ToDouble(value));
+                break;
+            case DbType.Guid:
+                requestProperties.SetParameter(parameterName, value as Guid? ?? (value is null ? null : Guid.Parse(value.ToString()!)));
+                break;
+            case DbType.Date:
+            case DbType.DateTime:
+                requestProperties.SetParameter(
+                    parameterName,
+                    value as DateTime? ?? (value is null ? null : Convert.ToDateTime(value)));
+                break;
+            case DbType.Time:
+                requestProperties.SetParameter(
+                    parameterName,
+                    value as TimeSpan? ?? (value is null ? null : TimeSpan.Parse(value.ToString()!)));
+                break;
+            default:
+                requestProperties.SetParameter(parameterName, value?.ToString());
+                break;
+        }
+    }
 
     private sealed class KustoParameter : DbParameter
     {
