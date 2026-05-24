@@ -666,7 +666,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     }
 
     // ============================================================
-    // SqlParameter → substitute using cache
+    // SqlParameter: add to parameters collection if not already present, then emit parameter name without EF's leading "__" prefix
     // ============================================================
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
