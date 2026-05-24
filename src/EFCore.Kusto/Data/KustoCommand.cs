@@ -4,6 +4,7 @@ using System.Data.Common;
 using Azure.Core;
 using Azure.Identity;
 using EFCore.Kusto.Infrastructure.Internal;
+using EFCore.Kusto.Storage;
 using Kusto.Data;
 using Kusto.Data.Common;
 using Kusto.Data.Net.Client;
@@ -134,7 +135,7 @@ public sealed class KustoCommand : DbCommand
                     CommandTextHeader += ", ";
                 }
 
-                crp.SetParameter(param.ParameterName, param.Value.ToString());
+                crp.SetParameter(param.ParameterName, KustoLiteral.Format(param.Value, GetKustoType(param.DbType)));
             }
 
             CommandTextHeader += ");\n";
@@ -167,9 +168,11 @@ public sealed class KustoCommand : DbCommand
     {
         DbType.AnsiString or DbType.String or DbType.StringFixedLength or DbType.AnsiStringFixedLength
             => "string",
-        DbType.Int16 or DbType.Int32 or DbType.Int64 => "long",
+        DbType.Byte or DbType.SByte or DbType.Int16 or DbType.UInt16 or DbType.Int32 => "int",
+        DbType.Int64 or DbType.UInt32 or DbType.UInt64 => "long",
         DbType.Boolean => "bool",
-        DbType.DateTime or DbType.Date or DbType.Time => "datetime",
+        DbType.DateTime or DbType.DateTime2 or DbType.DateTimeOffset or DbType.Date => "datetime",
+        DbType.Time => "timespan",
         DbType.Double or DbType.Decimal or DbType.Single => "real",
         DbType.Guid => "guid",
         _ => "string"
