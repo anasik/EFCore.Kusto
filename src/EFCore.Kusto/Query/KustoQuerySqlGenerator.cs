@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Linq.Expressions;
-using EFCore.Kusto.Query.Internal;
 using Kusto.Cloud.Platform.Utils;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
@@ -12,6 +11,17 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 {
     private int _selectDepth;
     private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
+    private static readonly Dictionary<string, string> _sqlToKqlAggregate = new(StringComparer.Ordinal)
+    {
+        ["MAX"] = "max",
+        ["MIN"] = "min",
+        ["SUM"] = "sum",
+        ["AVG"] = "avg",
+        ["AVERAGE"] = "avg",
+        ["COUNT"] = "count",
+        ["LONGCOUNT"] = "count",
+    };
+
 
     // MAIN ENTRY
     protected override Expression VisitSelect(SelectExpression select)
@@ -27,6 +37,8 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         WriteFrom(select);
         WriteWhere(select);
+        if (select.GroupBy.Count > 0)
+            WriteSummarizeFromGroupBy(select);
         WriteOrderBy(select);
         WriteProjection(select);
         WriteSkip(select);
@@ -41,6 +53,163 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         _selectDepth--;
         return select;
     }
+
+    // ============================================================
+    // SUMMARIZE — EF GroupBy SelectExpression path
+    // ============================================================
+
+    private void WriteSummarizeFromGroupBy(SelectExpression select)
+    {
+        Sql.AppendLine();
+        Sql.Append("| summarize");
+
+        bool first = true;
+        foreach (var proj in select.Projection)
+        {
+            if (select.GroupBy.Any(k => ReferenceEquals(k, proj.Expression) || k.Equals(proj.Expression)))
+                continue;
+
+            Sql.Append(first ? " " : ", ");
+            first = false;
+            Sql.Append(AliasFor(proj));
+            Sql.Append(" = ");
+            Visit(proj.Expression);
+        }
+
+        if (select.GroupBy.Count > 0)
+        {
+            Sql.Append(" by ");
+            for (int i = 0; i < select.GroupBy.Count; i++)
+            {
+                if (i > 0) Sql.Append(", ");
+                Visit(select.GroupBy[i]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits aggregate SqlFunctionExpressions in their KQL form. Recognises
+    /// <c>MAX/MIN/SUM/AVG(arg)</c>, the <c>COALESCE(&lt;agg&gt;, default)</c>
+    /// wrapper EF inserts for non-nullable results, and the three COUNT shapes
+    /// (<c>COUNT(*)</c>, <c>COUNT(CASE WHEN p THEN 1 END)</c>,
+    /// <c>COUNT(DISTINCT col)</c>). Non-aggregate function calls fall through
+    /// to the base implementation.
+    /// </summary>
+    protected override Expression VisitSqlFunction(SqlFunctionExpression fn)
+    {
+        if (fn.Name == "COALESCE" && fn.Arguments?.Count > 0
+                                  && fn.Arguments[0] is SqlFunctionExpression coalesced
+                                  && _sqlToKqlAggregate.ContainsKey(coalesced.Name))
+            return Visit(coalesced);
+
+        if (!_sqlToKqlAggregate.TryGetValue(fn.Name, out var kql))
+            return base.VisitSqlFunction(fn);
+
+        if (kql == "count")
+        {
+            var arg = fn.Arguments?.Count == 1 ? fn.Arguments[0] : null;
+            switch (arg)
+            {
+                case CaseExpression { Operand: null, WhenClauses: { Count: 1 } w } when IsLiteralOne(w[0].Result):
+                    Sql.Append("countif(");
+                    Visit(w[0].Test);
+                    Sql.Append(")");
+                    return fn;
+                case DistinctExpression de:
+                    Sql.Append("dcount(");
+                    Visit(de.Operand);
+                    Sql.Append(")");
+                    return fn;
+                default:
+                    Sql.Append("count()");
+                    return fn;
+            }
+        }
+
+        Sql.Append(kql);
+        Sql.Append("(");
+        for (int i = 0; i < fn.Arguments!.Count; i++)
+        {
+            if (i > 0) Sql.Append(", ");
+            Visit(fn.Arguments[i]);
+        }
+        Sql.Append(")");
+        return fn;
+    }
+
+    /// <summary>
+    /// True if the expression tree contains any aggregate function call —
+    /// either directly, inside a wrapper like <c>COALESCE(SUM(x), 0)</c>, or
+    /// composed with binary/unary/case nodes (e.g. <c>SUM(x) * 2</c>,
+    /// <c>MAX(x) - MIN(x)</c>). Used by <c>WriteProjection</c> to decide
+    /// whether a slot should emit just its alias (because the column was
+    /// already produced on a preceding <c>| summarize</c> line) or the full
+    /// <c>alias = expression</c> form.
+    /// </summary>
+    private static bool ContainsAggregate(SqlExpression expr) => expr switch
+    {
+        SqlFunctionExpression fn when _sqlToKqlAggregate.ContainsKey(fn.Name) => true,
+        SqlFunctionExpression fn => fn.Arguments?.Any(ContainsAggregate) ?? false,
+        SqlBinaryExpression b => ContainsAggregate(b.Left) || ContainsAggregate(b.Right),
+        SqlUnaryExpression u => ContainsAggregate(u.Operand),
+        CaseExpression c =>
+            c.WhenClauses.Any(w => ContainsAggregate(w.Result))
+            || (c.ElseResult != null && ContainsAggregate(c.ElseResult)),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Alias for a projection slot on the <c>| summarize</c> line: EF's
+    /// supplied alias, or a Kusto-style fallback synthesized from the
+    /// projection's outer aggregate (e.g. <c>sum_Amount</c>).
+    /// </summary>
+    private static string AliasFor(ProjectionExpression proj)
+    {
+        if (!string.IsNullOrEmpty(proj.Alias)) return proj.Alias;
+        return AliasHint(proj.Expression) ?? "Value";
+    }
+
+    /// <summary>
+    /// Suggested column name for an unaliased aggregate projection, or null
+    /// if the expression isn't an aggregate at its outer layer.
+    /// </summary>
+    private static string? AliasHint(SqlExpression expr)
+    {
+        if (expr is not SqlFunctionExpression fn) return null;
+        if (fn.Name == "COALESCE" && fn.Arguments?.Count > 0)
+            return AliasHint(fn.Arguments[0]);
+        if (!_sqlToKqlAggregate.TryGetValue(fn.Name, out var kql)) return null;
+
+        if (kql == "count" && fn.Arguments?.Count == 1)
+        {
+            if (fn.Arguments[0] is DistinctExpression { Operand: ColumnExpression dc })
+                return "dcount_" + dc.Name;
+            if (fn.Arguments[0] is CaseExpression) return "countif_";
+        }
+
+        var col = fn.Arguments?.Count > 0 && fn.Arguments[0] is ColumnExpression c ? c.Name : "";
+        return kql + "_" + col;
+    }
+
+    private static bool TryFindAggregateProjectionAlias(
+        SelectExpression select, SqlExpression ordering, out string? alias)
+    {
+        foreach (var proj in select.Projection)
+        {
+            if (AliasHint(proj.Expression) == null) continue;
+            if (ReferenceEquals(proj.Expression, ordering) || proj.Expression.Equals(ordering))
+            {
+                alias = AliasFor(proj);
+                return true;
+            }
+        }
+
+        alias = null;
+        return false;
+    }
+
+    private static bool IsLiteralOne(SqlExpression expr)
+        => expr is SqlConstantExpression { Value: int i } && i == 1;
 
     // ============================================================
     // FROM clause
@@ -216,6 +385,71 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         return base.VisitSqlUnary(sqlUnaryExpression);
     }
 
+    /// <summary>
+    /// Translates SQL <c>CASE WHEN ... THEN ... ELSE ... END</c> emissions to
+    /// their Kusto equivalents. Two-way searched CASE (one when-clause + an
+    /// else) renders as <c>iif(cond, then, else)</c>; everything else renders
+    /// as <c>case(p1, r1, p2, r2, ..., default)</c>. Simple CASE
+    /// (<c>CASE x WHEN v THEN r</c>) is rewritten to its searched equivalent
+    /// (<c>x == v</c> as the predicate). Missing else defaults to a bare
+    /// <c>null</c> literal.
+    /// </summary>
+    protected override Expression VisitCase(CaseExpression caseExpression)
+    {
+        bool simple = caseExpression.Operand != null;
+
+        if (!simple
+            && caseExpression.WhenClauses.Count == 1
+            && caseExpression.ElseResult != null)
+        {
+            Sql.Append("iif(");
+            Visit(caseExpression.WhenClauses[0].Test);
+            Sql.Append(", ");
+            Visit(caseExpression.WhenClauses[0].Result);
+            Sql.Append(", ");
+            Visit(caseExpression.ElseResult);
+            Sql.Append(")");
+            return caseExpression;
+        }
+
+        Sql.Append("case(");
+        for (int i = 0; i < caseExpression.WhenClauses.Count; i++)
+        {
+            if (i > 0) Sql.Append(", ");
+            var w = caseExpression.WhenClauses[i];
+
+            // Simple CASE: rewrite each WHEN value into a searched-equivalent
+            // equality (`Operand == Test`) by constructing the binary
+            // expression and letting VisitSqlBinary handle it — that path
+            // owns provider-specific concerns (string strcmp, null handling,
+            // precedence/parens).
+            if (simple)
+            {
+                Visit(new SqlBinaryExpression(
+                    ExpressionType.Equal,
+                    caseExpression.Operand!,
+                    w.Test,
+                    typeof(bool),
+                    typeMapping: null));
+            }
+            else
+            {
+                Visit(w.Test);
+            }
+
+            Sql.Append(", ");
+            Visit(w.Result);
+        }
+        Sql.Append(", ");
+        if (caseExpression.ElseResult != null)
+            Visit(caseExpression.ElseResult);
+        else
+            Sql.Append("null");
+        Sql.Append(")");
+
+        return caseExpression;
+    }
+
     protected override Expression VisitSqlBinary(SqlBinaryExpression sqlBinaryExpression)
     {
         var left = sqlBinaryExpression.Left;
@@ -275,6 +509,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (i > 0)
                 Sql.Append(", ");
 
+            // Aggregate-bearing slots were already emitted as `alias = func(...)`
+            // on the preceding `| summarize` line; emit just the alias here.
+            if (ContainsAggregate(proj.Expression))
+            {
+                Sql.Append(AliasFor(proj));
+                continue;
+            }
+
             var alias = proj.Alias;
             if (!alias.IsNullOrEmpty())
             {
@@ -321,8 +563,21 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             if (i > 0)
                 Sql.Append(", ");
 
-            Visit(select.Orderings[i].Expression);
-            Sql.Append(select.Orderings[i].IsAscending ? " asc" : " desc");
+            var ord = select.Orderings[i];
+
+            // After a `| summarize`, EF still puts the raw aggregate
+            // SqlFunctionExpression (e.g. COALESCE(SUM(...), 0)) in
+            // select.Orderings — visiting it would emit the SQL-shaped
+            // function literal. Map it back to the projection alias that
+            // sits on the | summarize line. For the non-GroupBy branch no
+            // projection is an aggregate so this lookup always returns
+            // false and emission falls through to Visit unchanged.
+            if (TryFindAggregateProjectionAlias(select, ord.Expression, out var alias))
+                Sql.Append(alias);
+            else
+                Visit(ord.Expression);
+
+            Sql.Append(ord.IsAscending ? " asc" : " desc");
         }
     }
 
