@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using EFCore.Kusto.Storage;
 using Microsoft.EntityFrameworkCore.Update;
 
 namespace EFCore.Kusto.Update;
@@ -112,11 +112,11 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     {
         var pkParts = command.ColumnModifications
             .Where(c => c.IsKey)
-            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.Value ?? c.OriginalValue, c.ColumnType)}");
+            .Select(c => $"{c.ColumnName} == {KustoLiteral.Format(c.Value ?? c.OriginalValue, c.ColumnType)}");
 
         var concurrencyParts = command.ColumnModifications
             .Where(c => c.IsCondition && !c.IsKey && !c.Property.IsConcurrencyToken)
-            .Select(c => $"{c.ColumnName} == {FormatKustoLiteral(c.OriginalValue, c.ColumnType)}");
+            .Select(c => $"{c.ColumnName} == {KustoLiteral.Format(c.OriginalValue, c.ColumnType)}");
 
         return string.Join(" and ", pkParts.Concat(concurrencyParts));
     }
@@ -158,7 +158,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     {
         var assignments = updates
             .Where(c => c.IsWrite)
-            .Select(c => $"{c.ColumnName} = {FormatKustoLiteral(c.Value, c.ColumnType)}");
+            .Select(c => $"{c.ColumnName} = {KustoLiteral.Format(c.Value, c.ColumnType)}");
 
         return string.Join(", ", assignments);
     }
@@ -229,73 +229,4 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         }
     }
 
-    private static string FormatKustoLiteral(object? value, string? columnType)
-    {
-        if (value == null || value == DBNull.Value)
-        {
-            // Map common KQL types for nulls
-            return columnType switch
-            {
-                "string" => "\"\"",
-                "guid" => "guid(null)",
-                "bool" => "bool(null)",
-                "date" => "datetime(null)",
-                "datetime" => "datetime(null)",
-                "int" => "int(null)",
-                "long" => "long(null)",
-                "real" => "real(null)",
-                "decimal" => "decimal(null)",
-                "double" => "double(null)",
-                "timespan" => "timespan(null)",
-                "dynamic" => "dynamic(null)",
-                _ => "dynamic(null)"
-            };
-        }
-
-        switch (value)
-        {
-            case string s:
-                return $"\"{EscapeKustoString(s)}\"";
-
-            case Guid g:
-                return $"\"{g}\"";
-
-            case bool b:
-                return b ? "true" : "false";
-
-            case DateTime dt:
-                return $"datetime({dt:O})";
-
-            case DateTimeOffset dto:
-                return $"datetime({dto:O})";
-            
-            case int i:
-                return $"int({i})";
-            
-            case decimal d:
-                return $"decimal({d.ToString(CultureInfo.InvariantCulture)})";
-            
-            case double d:
-                return $"real({d.ToString(CultureInfo.InvariantCulture)})";
-            
-            case float f:
-                return $"real({f.ToString(CultureInfo.InvariantCulture)})";
-
-            case byte or sbyte or short or ushort or int or uint or long or ulong:
-                return Convert.ToString(value, CultureInfo.InvariantCulture);
-
-            case System.Collections.IEnumerable e when value is not string:
-                return $"\"{EscapeKustoString(JsonSerializer.Serialize(e))}\"";
-
-            default:
-                return $"dynamic({JsonSerializer.Serialize(value)})";
-        }
-    }
-
-    private static string EscapeKustoString(string s)
-        => s
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\r", "\\r")
-            .Replace("\n", "\\n");
 }
