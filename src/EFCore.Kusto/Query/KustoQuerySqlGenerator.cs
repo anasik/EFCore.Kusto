@@ -718,23 +718,4 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         Sql.Append(")");
     }
-
-    private static string ToKustoLiteral(object? value)
-    {
-        return value switch
-        {
-            null => "null",
-            string s => $"'{s.Replace("'", "''")}'",
-            bool b => b ? "true" : "false",
-            int i => i.ToString(),
-            long l => l.ToString(),
-            double d => d.ToString(CultureInfo.InvariantCulture),
-            decimal m => m.ToString(CultureInfo.InvariantCulture),
-            Guid g => $"'{g}'",
-            DateTime dt => $"datetime({dt:O})",
-            DateOnly dOnly => $"date({dOnly:yyyy-MM-dd})",
-            TimeOnly tOnly => $"time({tOnly:HH:mm:ss.fffffff})",
-            _ => $"'{value}'"
-        };
-    }
 }
