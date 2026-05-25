@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3]
+### Added
+- `GroupBy` → KQL `summarize` translation. `Sum`/`Min`/`Max`/`Average`/`Count`/`LongCount`, `Count(predicate)` → `countif`, `Distinct().Count()` → `dcount`. Composite keys, multi-aggregate projections, and aggregate-alias `OrderBy` supported.
+- Conditional `?:` translation → `iif` (two-way) and `case` (multi-way), including inside aggregates.
+
+### Fixed
+- Parameter substitution now emits proper typed KQL literals (strings, dates, GUIDs, nulls were all broken under raw `ToString()`).
+
 ## [0.2.2]
 ### Fixed
 - `KustoQuerySqlGenerator` when the same parameter is used multiple times in a query.
