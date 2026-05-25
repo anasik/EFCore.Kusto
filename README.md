@@ -95,6 +95,9 @@ This provider currently supports:
 - `Select` projections
 - Ordering (`OrderBy`, `ThenBy`)
 - Pagination (`Skip`, `Take`)
+- `GroupBy` with aggregates (`Sum`, `Min`, `Max`, `Average`, `Count`, `LongCount`,
+  `Count(predicate)` → `countif`, `Distinct().Count()` → `dcount`)
+- Conditional expressions (`?:`) → `iif` / `case`
 - Basic join translation used by OData `$expand`
 - Counts as used by OData `$count`
 
