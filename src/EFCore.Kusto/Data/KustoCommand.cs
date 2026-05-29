@@ -77,8 +77,49 @@ public sealed class KustoCommand : DbCommand
     {
     }
 
-    public override int ExecuteNonQuery() => throw new NotSupportedException();
-    public override object ExecuteScalar() => throw new NotSupportedException();
+    // ------------------------------------------------------------
+    // Kusto has no non-query/scalar protocol distinct from queries:
+    // every command (including control commands like .create table)
+    // returns a tabular result. We execute the reader and either drain
+    // it (non-query) or surface the first cell (scalar). These power
+    // migration control commands and the history-table existence check.
+    // ------------------------------------------------------------
+
+    public override int ExecuteNonQuery()
+    {
+        using var reader = ExecuteDbDataReader(CommandBehavior.Default);
+        while (reader.Read())
+        {
+        }
+
+        return reader.RecordsAffected;
+    }
+
+    public override object? ExecuteScalar()
+    {
+        using var reader = ExecuteDbDataReader(CommandBehavior.Default);
+        return reader.Read() && reader.FieldCount > 0 ? reader.GetValue(0) : null;
+    }
+
+    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+    {
+        using var reader = await ExecuteDbDataReaderAsync(CommandBehavior.Default, cancellationToken)
+            .ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+        }
+
+        return reader.RecordsAffected;
+    }
+
+    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+    {
+        using var reader = await ExecuteDbDataReaderAsync(CommandBehavior.Default, cancellationToken)
+            .ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.FieldCount > 0
+            ? reader.GetValue(0)
+            : null;
+    }
 
     public override void Prepare()
     {
