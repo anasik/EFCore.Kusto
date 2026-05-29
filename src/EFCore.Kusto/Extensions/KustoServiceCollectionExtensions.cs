@@ -9,10 +9,12 @@ using EFCore.Kusto.Storage;
 using EFCore.Kusto.Metadata.Conventions;
 using EFCore.Kusto.Metadata.Internal;
 using EFCore.Kusto.Update;
+using EFCore.Kusto.Migrations;
+using EFCore.Kusto.Migrations.Internal;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
-using Microsoft.EntityFrameworkCore.Query.Internal;
 using Microsoft.EntityFrameworkCore.Update;
 using Azure.Identity;
 using Azure.Core;
@@ -46,6 +48,10 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IRelationalAnnotationProvider, KustoAnnotationProvider>()
             .TryAdd<IUpdateSqlGenerator, KustoUpdateSqlGenerator>()
             .TryAdd<IRelationalDatabaseCreator, KustoDatabaseCreator>()
+            .TryAdd<IMigrationsSqlGenerator, KustoMigrationsSqlGenerator>()
+            .TryAdd<IHistoryRepository, KustoHistoryRepository>()
+            .TryAdd<IMigrator, KustoMigrator>()
+            .TryAdd<IMigrationCommandExecutor, KustoMigrationCommandExecutor>()
             .TryAddCoreServices();
 
         return services;
