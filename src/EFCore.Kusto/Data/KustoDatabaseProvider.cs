@@ -9,8 +9,12 @@ namespace EFCore.Kusto;
 /// </summary>
 public sealed class KustoDatabaseProvider : IDatabaseProvider
 {
-    /// <inheritdoc />
-    public string Name => "Kusto";
+    /// <summary>
+    /// The provider name. EF Core's design-time tooling treats this as the provider's
+    /// assembly name and loads it to discover the <c>DesignTimeProviderServices</c>
+    /// attribute, so it must match the assembly name (<c>EFCore.Kusto</c>).
+    /// </summary>
+    public string Name => "EFCore.Kusto";
 
     /// <inheritdoc />
     public bool IsConfigured(IDbContextOptions options)
