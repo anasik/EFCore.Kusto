@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.4]
+### Added
+- Experimental EF Core migrations support: schema operations translate to KQL control commands (`.create-merge table`, `.alter-merge table`, `.drop`, `.rename`), with applied migrations tracked in an `EFMigrationsHistory` table. Non-transactional; `.alter column type=` clears column data; relational-only constructs (indexes, FKs, constraints, sequences) are no-ops.
+
 ## [0.2.3]
 ### Added
 - `GroupBy` → KQL `summarize` translation. `Sum`/`Min`/`Max`/`Average`/`Count`/`LongCount`, `Count(predicate)` → `countif`, `Distinct().Count()` → `dcount`. Composite keys, multi-aggregate projections, and aggregate-alias `OrderBy` supported.

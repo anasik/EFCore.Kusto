@@ -16,10 +16,11 @@ standalone for any LINQ-to-KQL translation needs.
 - [3. Project Goals](#3-project-goals)
 - [4. Read Capabilities](#4-read-capabilities)
 - [5. Write Capabilities](#5-write-capabilities)
-- [6. Changelog](#6-changelog)
-- [7. Contributing](#7-contributing)
-- [8. License](#8-license)
-- [9. Disclaimer](#9-disclaimer)
+- [6. Migrations (Experimental)](#6-migrations-experimental)
+- [7. Changelog](#7-changelog)
+- [8. Contributing](#8-contributing)
+- [9. License](#9-license)
+- [10. Disclaimer](#10-disclaimer)
 
 ---
 
@@ -135,13 +136,31 @@ Note: Transactional guarantees and concurrency semantics are constrained by Kust
 
 ---
 
-## 6. Changelog
+## 6. Migrations (Experimental)
+
+EF Core migrations are supported, translating schema operations into KQL control commands
+(`.create-merge table`, `.alter-merge table`, `.drop`, `.rename`, etc.). Standard tooling works:
+`dotnet ef migrations add`, `dotnet ef database update`, `dotnet ef migrations script`. Applied
+migrations are tracked in an `EFMigrationsHistory` table.
+
+Migrations run against the database selected by `UseKusto(cluster, database)` — Kusto's database
+is the schema equivalent and is fixed at the connection, so EF schema operations are no-ops.
+
+This feature is experimental. Limitations:
+
+- Indexes, foreign keys, primary keys, unique/check constraints, and sequences are no-ops (Kusto has none).
+- Migrations are non-transactional — no rollback; execution stops at the first failing command.
+- `.alter column type=` clears existing data in that column (Kusto semantics).
+
+---
+
+## 7. Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for a detailed version history.
 
 ---
 
-## 7. Contributing
+## 8. Contributing
 
 Contributions are welcome.  
 If you encounter a translation issue, please include:
@@ -154,7 +173,7 @@ This helps isolate translation gaps quickly.
 
 ---
 
-## 8. License
+## 9. License
 
 MIT License – simple, permissive, widely accepted.
 
@@ -162,7 +181,7 @@ EFCore.Kusto is free for commercial and open‑source use.
 
 ---
 
-## 9. Disclaimer
+## 10. Disclaimer
 
 While this provider is functional and under active development, it is not yet battle-tested in production environments.
 
