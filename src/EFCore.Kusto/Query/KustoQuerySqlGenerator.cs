@@ -682,7 +682,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 sqlParameterExpression.IsNullable);
         }
 
-        Sql.Append(name.Substring(2)); // remove leading __
+        Sql.Append(name.StartsWith("__") ? name.Substring(2) : name);
         return sqlParameterExpression;
     }
 
