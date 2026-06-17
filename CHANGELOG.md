@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.5]
+### Added
+- Multi-targeting for `net8.0`, `net9.0` and `net10.0`, building against EF Core 8, 9 and 10 respectively. EF Core 8 support is retained unchanged.
+
+### Fixed
+- Adapted to the EF Core 9 migrations API: `HistoryRepository`'s database-lock members (a no-op lock, since Kusto has no advisory-lock primitive) and the new `IMigrationCommandExecutor` overloads.
+- Adapted to the EF Core 10 `RelationalCommand` `logCommandText` constructor parameter.
+- Query-parameter rendering now strips the captured-variable `__` prefix only when present, so translation works on EF Core 10 (which dropped the prefix) as well as EF Core 8/9.
+
 ## [0.2.4]
 ### Added
 - Experimental EF Core migrations support: schema operations translate to KQL control commands (`.create-merge table`, `.alter-merge table`, `.drop`, `.rename`), with applied migrations tracked in an `EFMigrationsHistory` table. Non-transactional; `.alter column type=` clears column data; relational-only constructs (indexes, FKs, constraints, sequences) are no-ops.

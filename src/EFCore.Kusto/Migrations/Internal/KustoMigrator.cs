@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -32,7 +33,18 @@ public class KustoMigrator : Microsoft.EntityFrameworkCore.Migrations.Internal.M
         IModelRuntimeInitializer modelRuntimeInitializer,
         IDiagnosticsLogger<DbLoggerCategory.Migrations> logger,
         IRelationalCommandDiagnosticsLogger commandLogger,
-        IDatabaseProvider databaseProvider)
+        IDatabaseProvider databaseProvider
+#if NET9_0_OR_GREATER
+        ,
+        // EF Core 9 widened the Migrator constructor with the model-diff/design-time-model inputs it
+        // needs for the resumable migration pipeline plus an execution strategy. They are passed
+        // straight through to the base type; this provider does not use them directly.
+        IMigrationsModelDiffer migrationsModelDiffer,
+        IDesignTimeModel designTimeModel,
+        IDbContextOptions contextOptions,
+        IExecutionStrategy executionStrategy
+#endif
+        )
         : base(
             migrationsAssembly,
             historyRepository,
@@ -46,7 +58,15 @@ public class KustoMigrator : Microsoft.EntityFrameworkCore.Migrations.Internal.M
             modelRuntimeInitializer,
             logger,
             commandLogger,
-            databaseProvider)
+            databaseProvider
+#if NET9_0_OR_GREATER
+            ,
+            migrationsModelDiffer,
+            designTimeModel,
+            contextOptions,
+            executionStrategy
+#endif
+            )
     {
     }
 

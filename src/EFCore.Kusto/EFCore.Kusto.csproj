@@ -2,13 +2,13 @@
 
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.4</Version>
+        <Version>0.2.5</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,9 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.2.5:
+            - Multi-targeted net8.0, net9.0 and net10.0, building against EF Core 8, 9 and 10 respectively. Adapted to the EF Core 9 migrations API (HistoryRepository database lock, IMigrationCommandExecutor overloads) and the EF Core 10 RelationalCommand logCommandText. Query parameter naming now works across versions (EF Core 10 dropped the "__" prefix).
+
             Version 0.2.4:
             - Added experimental EF Core migrations support (schema ops -> KQL control commands, EFMigrationsHistory tracking). Non-transactional; alter-column-type clears data; relational-only constructs are no-ops.
 
@@ -75,9 +78,22 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Azure.Kusto.Data" Version="14.0.2"/>
+        <PackageReference Include="Azure.Identity" Version="1.13.0"/>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8"/>
-        <PackageReference Include="Azure.Identity" Version="1.13.0"/>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.9"/>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9"/>
     </ItemGroup>
 
     <ItemGroup>
