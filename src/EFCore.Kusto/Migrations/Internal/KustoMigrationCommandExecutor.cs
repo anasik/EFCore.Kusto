@@ -68,6 +68,36 @@ public class KustoMigrationCommandExecutor : IMigrationCommandExecutor
         }
     }
 
+#if NET9_0_OR_GREATER
+    // EF Core 9 reshaped IMigrationCommandExecutor: the migrator now calls these overloads, threading
+    // a MigrationExecutionState plus transaction/isolation hints for resumable, transaction-wrapped
+    // migrations. Kusto applies each migration as one non-transactional .execute database script batch,
+    // so the extra arguments don't apply — the work delegates to the original overloads. The int return
+    // is the rows-affected count, which Kusto control commands don't report, so it is 0.
+    public int ExecuteNonQuery(
+        IReadOnlyList<MigrationCommand> migrationCommands,
+        IRelationalConnection connection,
+        MigrationExecutionState executionState,
+        bool commitTransaction,
+        System.Data.IsolationLevel? isolationLevel = null)
+    {
+        ExecuteNonQuery(migrationCommands, connection);
+        return 0;
+    }
+
+    public async Task<int> ExecuteNonQueryAsync(
+        IReadOnlyList<MigrationCommand> migrationCommands,
+        IRelationalConnection connection,
+        MigrationExecutionState executionState,
+        bool commitTransaction,
+        System.Data.IsolationLevel? isolationLevel = null,
+        CancellationToken cancellationToken = default)
+    {
+        await ExecuteNonQueryAsync(migrationCommands, connection, cancellationToken).ConfigureAwait(false);
+        return 0;
+    }
+#endif
+
     // The command logger and DbContext are left null: RelationalCommand guards every logger call
     // with a null-conditional, so the batch executes without them. Injecting the relational
     // command logger here is not viable — the history repository's dependencies pull in this

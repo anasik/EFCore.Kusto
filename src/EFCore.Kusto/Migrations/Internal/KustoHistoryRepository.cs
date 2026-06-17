@@ -89,4 +89,20 @@ public class KustoHistoryRepository : HistoryRepository
     public override string GetEndIfScript()
         => throw new NotSupportedException(
             "Idempotent migration scripts are not supported by the Kusto provider. Apply migrations with 'dotnet ef database update' instead.");
+
+#if NET9_0_OR_GREATER
+    /// <summary>
+    /// EF Core 9+ acquires an exclusive lock around the migration pipeline. Kusto has no advisory-lock
+    /// primitive, so the lock is a no-op (<see cref="KustoMigrationsDatabaseLock"/>) and is released
+    /// explicitly rather than being tied to a transaction or connection.
+    /// </summary>
+    public override LockReleaseBehavior LockReleaseBehavior
+        => LockReleaseBehavior.Explicit;
+
+    public override IMigrationsDatabaseLock AcquireDatabaseLock()
+        => new KustoMigrationsDatabaseLock(this);
+
+    public override Task<IMigrationsDatabaseLock> AcquireDatabaseLockAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IMigrationsDatabaseLock>(new KustoMigrationsDatabaseLock(this));
+#endif
 }
