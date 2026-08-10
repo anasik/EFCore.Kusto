@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
 using System.Text.RegularExpressions;
 using EFCore.Kusto.Extensions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
 namespace EFCore.Kusto.Tests;
@@ -640,6 +643,80 @@ public class KustoGroupByTests
     }
 
     // ============================================================
+    // Whole-set aggregates with NO GroupBy
+    // ============================================================
+
+    // Count()/LongCount()/Sum() etc. are terminal scalar operators — there's
+    // no IQueryable left to call ToQueryString() on. Instead, capture the
+    // generated command text via a DbCommandInterceptor hooked in right
+    // before ADO execution, then abort with a marker exception so the probe
+    // never reaches KustoCommand's real (auth-requiring) execution path.
+
+    [Fact]
+    public void CountAsync_with_no_GroupBy_emits_bare_count()
+    {
+        var probe = new CommandTextProbe();
+        using var ctx = CreateContext(probe);
+
+        Assert.Throws<CommandTextProbe.Signal>(() => ctx.Sale.Count());
+
+        Assert.Equal("Sale\n| count", probe.CommandText);
+    }
+
+    [Fact]
+    public void LongCountAsync_with_no_GroupBy_emits_bare_count()
+    {
+        var probe = new CommandTextProbe();
+        using var ctx = CreateContext(probe);
+
+        Assert.Throws<CommandTextProbe.Signal>(() => ctx.Sale.LongCount());
+
+        Assert.Equal("Sale\n| count", probe.CommandText);
+    }
+
+    [Fact]
+    public void CountAsync_with_Where_and_no_GroupBy_emits_where_then_bare_count()
+    {
+        var probe = new CommandTextProbe();
+        using var ctx = CreateContext(probe);
+
+        Assert.Throws<CommandTextProbe.Signal>(() => ctx.Sale.Count(s => s.Amount > 100m));
+
+        Assert.Equal("Sale\n| where Amount > 100\n| count", probe.CommandText);
+    }
+
+    [Fact]
+    public void SumAsync_with_no_GroupBy_emits_summarize_without_by()
+    {
+        var probe = new CommandTextProbe();
+        using var ctx = CreateContext(probe);
+
+        Assert.Throws<CommandTextProbe.Signal>(() => ctx.Sale.Sum(s => s.Amount));
+
+        Assert.Equal("Sale\n| summarize sum_Amount = sum(Amount)\n| project sum_Amount", probe.CommandText);
+    }
+
+    /// <summary>
+    /// Captures the exact <see cref="DbCommand.CommandText"/> EF hands to ADO
+    /// right before execution, then throws <see cref="Signal"/> to abort
+    /// before the fake connection's real (network-touching) command-execution
+    /// path runs.
+    /// </summary>
+    private sealed class CommandTextProbe : DbCommandInterceptor
+    {
+        public string? CommandText { get; private set; }
+
+        public sealed class Signal : Exception;
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+        {
+            CommandText = command.CommandText;
+            throw new Signal();
+        }
+    }
+
+    // ============================================================
     // Sanity: no SQL-shaped aggregate function literals
     // ============================================================
 
@@ -702,12 +779,13 @@ public class KustoGroupByTests
     // Infrastructure
     // ============================================================
 
-    private static KustoGroupByTestContext CreateContext()
+    private static KustoGroupByTestContext CreateContext(IInterceptor? interceptor = null)
     {
-        var options = new DbContextOptionsBuilder<KustoGroupByTestContext>()
-            .UseKusto(Cluster, Database)
-            .Options;
-        return new KustoGroupByTestContext(options);
+        var builder = new DbContextOptionsBuilder<KustoGroupByTestContext>()
+            .UseKusto(Cluster, Database);
+        if (interceptor != null)
+            builder.AddInterceptors(interceptor);
+        return new KustoGroupByTestContext(builder.Options);
     }
 
     private sealed class KustoGroupByTestContext : DbContext
