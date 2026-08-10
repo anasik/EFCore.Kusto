@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.5</Version>
+        <Version>0.2.6</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,9 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.2.6:
+            - Fixed regression with count translation introduced in 0.2.3.
+            
             Version 0.2.5:
             - Multi-targeted net8.0, net9.0 and net10.0, building against EF Core 8, 9 and 10 respectively. Adapted to the EF Core 9 migrations API (HistoryRepository database lock, IMigrationCommandExecutor overloads) and the EF Core 10 RelationalCommand logCommandText. Query parameter naming now works across versions (EF Core 10 dropped the "__" prefix).
 

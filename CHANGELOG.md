@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.6]
+### Fixed
+- Regression for count translation introduced in 0.2.3.
+
 ## [0.2.5]
 ### Added
 - Multi-targeting for `net8.0`, `net9.0` and `net10.0`, building against EF Core 8, 9 and 10 respectively. EF Core 8 support is retained unchanged.
