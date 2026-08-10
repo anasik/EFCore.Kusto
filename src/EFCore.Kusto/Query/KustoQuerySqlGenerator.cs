@@ -37,12 +37,21 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         WriteFrom(select);
         WriteWhere(select);
-        if (select.GroupBy.Count > 0)
-            WriteSummarizeFromGroupBy(select);
-        WriteOrderBy(select);
-        WriteProjection(select);
-        WriteSkip(select);
-        WriteTake(select);
+
+        if (IsPlainCountStarQuery(select))
+        {
+            Sql.AppendLine();
+            Sql.Append("| count");
+        }
+        else
+        {
+            if (select.GroupBy.Count > 0 || select.Projection.Any(p => ContainsAggregate(p.Expression)))
+                WriteSummarizeFromGroupBy(select);
+            WriteOrderBy(select);
+            WriteProjection(select);
+            WriteSkip(select);
+            WriteTake(select);
+        }
 
         if (isNested)
         {
@@ -52,6 +61,31 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         _selectDepth--;
         return select;
+    }
+
+    /// <summary>
+    /// True for a whole-set <c>Count()</c>/<c>LongCount()</c> query with no
+    /// GroupBy: a single <c>COUNT(*)</c> projection and no ordering/paging.
+    /// These translate directly to Kusto's <c>| count</c> shorthand instead
+    /// of the general <c>| summarize ... | project ...</c> aggregate shape,
+    /// which needs a GroupBy (or at least an aliased column) to be
+    /// meaningful.
+    /// </summary>
+    private static bool IsPlainCountStarQuery(SelectExpression select)
+        => select.GroupBy.Count == 0
+           && select.Projection.Count == 1
+           && select.Orderings.Count == 0
+           && select.Offset == null
+           && select.Limit == null
+           && IsCountStar(select.Projection[0].Expression);
+
+    private static bool IsCountStar(SqlExpression expr)
+    {
+        if (expr is SqlFunctionExpression { Name: "COALESCE" } coalesce && coalesce.Arguments?.Count > 0)
+            expr = coalesce.Arguments[0];
+
+        return expr is SqlFunctionExpression { Name: "COUNT", Arguments: { Count: 1 } args }
+               && args[0] is SqlFragmentExpression { Sql: "*" };
     }
 
     // ============================================================
