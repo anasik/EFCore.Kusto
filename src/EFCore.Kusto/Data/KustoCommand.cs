@@ -62,6 +62,8 @@ public sealed class KustoCommand : DbCommand
     public override int CommandTimeout { get; set; }
     public override CommandType CommandType { get; set; } = CommandType.Text;
 
+    public bool? IsControlCommand { get; internal set; }
+
 
     protected override DbConnection? DbConnection { get; set; }
 
@@ -155,7 +157,7 @@ public sealed class KustoCommand : DbCommand
         var crp = new ClientRequestProperties();
 
         CommandText = CommandText.Replace("\n| project EXISTS ", "");
-        var isControlCommand = CommandText.TrimStart().StartsWith(".");
+        var isControlCommand = IsControlCommand ?? CommandText.TrimStart().StartsWith(".");
 
         Func<string, IDataReader> Execute = isControlCommand
             ? text =>
