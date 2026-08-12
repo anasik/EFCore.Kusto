@@ -215,7 +215,8 @@ public sealed class KustoCommand : DbCommand
         DbType.Boolean => "bool",
         DbType.DateTime or DbType.DateTime2 or DbType.DateTimeOffset or DbType.Date => "datetime",
         DbType.Time => "timespan",
-        DbType.Double or DbType.Decimal or DbType.Single => "real",
+        DbType.Decimal => "decimal",
+        DbType.Double or DbType.Single => "real",
         DbType.Guid => "guid",
         _ => "string"
     };
