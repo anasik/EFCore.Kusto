@@ -264,7 +264,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         WriteJoinedFrom(select);
     }
-    
+
     private void WriteSingleFrom(TableExpressionBase table)
     {
         switch (table)
@@ -283,7 +283,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
                 VisitSelect(nested);
                 break;
 
-            case LeftJoinExpression left:
+            case PredicateJoinExpressionBase left:
                 WriteSingleFrom(left.Table);
                 break;
 
@@ -311,22 +311,29 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         {
             var right = select.Tables[i];
 
-            Sql.AppendLine();
-            Sql.Append("| join kind=leftouter (");
+            var joinKind = right switch
+            {
+                InnerJoinExpression => "inner",
+                LeftJoinExpression => "leftouter",
+#if NET10_0_OR_GREATER
+                RightJoinExpression => "rightouter",
+#endif
+                _ when _outerApplyHandler.IsApplyJoin(right) => "leftouter",
+                _ => throw new NotSupportedException($"Unsupported join expression: {right.GetType().Name}")
+            };
 
-            if (right is LeftJoinExpression leftJoin)
+            Sql.AppendLine();
+            Sql.Append($"| join kind={joinKind} (");
+
+            if (right is PredicateJoinExpressionBase join)
             {
                 WriteSingleFrom(right);
                 Sql.Append(") on ");
-                WriteJoinPredicate(leftJoin.JoinPredicate);
-            }
-            else if (_outerApplyHandler.IsApplyJoin(right))
-            {
-                _outerApplyHandler.ProcessApplyJoin(right, Sql, WriteSingleFrom, WriteJoinPredicate);
+                WriteJoinPredicate(join.JoinPredicate);
             }
             else
             {
-                throw new NotSupportedException($"Unsupported join expression: {right.GetType().Name}");
+                _outerApplyHandler.ProcessApplyJoin(right, Sql, WriteSingleFrom, WriteJoinPredicate);
             }
         }
     }
@@ -369,7 +376,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (select.Predicate == null)
             return;
-        
+
         var p = select.Predicate as SqlBinaryExpression;
         if (p != null)
         {
@@ -408,7 +415,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             return sqlUnaryExpression;
         }
 
-        if(sqlUnaryExpression.OperatorType == ExpressionType.Not)
+        if (sqlUnaryExpression.OperatorType == ExpressionType.Not)
         {
             Sql.Append("not (");
             Visit(sqlUnaryExpression.Operand);
@@ -474,6 +481,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
             Sql.Append(", ");
             Visit(w.Result);
         }
+
         Sql.Append(", ");
         if (caseExpression.ElseResult != null)
             Visit(caseExpression.ElseResult);
