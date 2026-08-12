@@ -1,4 +1,5 @@
 using System.Data.Common;
+using EFCore.Kusto.Data;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -28,6 +29,11 @@ public class KustoRelationalCommand(
         DbCommandMethod commandMethod)
     {
         DbCommand command = base.CreateDbCommand(parameterObject, commandId, commandMethod);
+
+        if (command is KustoCommand kustoCommand)
+        {
+            kustoCommand.IsControlCommand = CommandText.TrimStart().StartsWith(".");
+        }
 
         foreach (DbParameter commandParameter in command.Parameters)
         {
