@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.6</Version>
+        <Version>0.2.7</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,11 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.2.7:
+            - Added support for inner and right joins (previously only left join was translated); unrecognized join expression types now throw instead of silently falling back to a left join.
+            - Fixed DbType.Decimal being mapped to Kusto's "real" (binary floating-point) type instead of its own "decimal" type, which could silently lose precision on decimal parameters.
+            - Control-command routing (.show/.drop/etc. vs. query) is now decided once from the provider's own pristine command text before any DbCommandInterceptor can mutate it, closing a spoofing/tampering gap in the previous execution-time text sniff. Commands created outside the EF Core pipeline (e.g. via DbConnection.CreateCommand() directly) fall back to the original sniffing behavior unchanged.
+
             Version 0.2.6:
             - Fixed regression with count translation introduced in 0.2.3.
             
