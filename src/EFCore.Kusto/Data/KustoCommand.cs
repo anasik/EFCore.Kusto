@@ -157,7 +157,7 @@ public sealed class KustoCommand : DbCommand
         var crp = new ClientRequestProperties();
 
         CommandText = CommandText.Replace("\n| project EXISTS ", "");
-        var isControlCommand = IsControlCommand ?? CommandText.TrimStart().StartsWith(".");
+        var isControlCommand = ResolveIsControlCommand(IsControlCommand, CommandText);
 
         Func<string, IDataReader> Execute = isControlCommand
             ? text =>
@@ -206,7 +206,16 @@ public sealed class KustoCommand : DbCommand
         return token.Token;
     }
 
-    private static string GetKustoType(DbType dbType) => dbType switch
+    /// <summary>
+    /// Resolves whether a command's text is a control command. Trusts <paramref name="explicitFlag"/>
+    /// when the EF Core pipeline set it (see <see cref="IsControlCommand"/>); otherwise falls back to
+    /// sniffing <paramref name="commandText"/>, which is what happens for commands created outside
+    /// that pipeline (e.g. via <see cref="System.Data.Common.DbConnection.CreateCommand"/> directly).
+    /// </summary>
+    internal static bool ResolveIsControlCommand(bool? explicitFlag, string commandText) =>
+        explicitFlag ?? commandText.TrimStart().StartsWith(".");
+
+    internal static string GetKustoType(DbType dbType) => dbType switch
     {
         DbType.AnsiString or DbType.String or DbType.StringFixedLength or DbType.AnsiStringFixedLength
             => "string",
