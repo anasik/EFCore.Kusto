@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.7]
+### Added
+- Support for inner and right joins (previously only left join was translated).
+
+### Fixed
+- `DbType.Decimal` was mapped to Kusto's `real` (binary floating-point) type instead of `decimal`, which could silently lose precision on decimal parameters.
+- Control-command routing (`.show`/`.drop`/etc. vs. a query) is now decided once from the provider's own pristine command text, before any `DbCommandInterceptor` can mutate it — closing a gap where a header-prepending interceptor could cause a control command to be misrouted as a query. Commands created outside the EF Core pipeline (e.g. via `DbConnection.CreateCommand()` directly) keep the original execution-time text-sniffing fallback.
+- Unrecognized join expression types now throw `NotSupportedException` instead of silently being translated as a left join.
+
 ## [0.2.6]
 ### Fixed
 - Regression for count translation introduced in 0.2.3.
