@@ -53,6 +53,35 @@ public class KustoQueryTranslationTests
 
 
     [Fact]
+    public void ToQueryString_translates_IsNullOrEmpty_to_isempty()
+    {
+        using var context = CreateContext();
+        var kql = context.Logs.Where(log => string.IsNullOrEmpty(log.Message)).ToQueryString();
+
+        Assert.Contains("| where isempty(Message)", kql);
+    }
+
+    [Fact]
+    public void ToQueryString_translates_negated_IsNullOrEmpty_to_isempty()
+    {
+        using var context = CreateContext();
+        var kql = context.Logs.Where(log => !string.IsNullOrEmpty(log.Message)).ToQueryString();
+
+        Assert.Contains("isempty(Message)", kql);
+        Assert.Contains("not (", kql);
+    }
+
+    [Fact]
+    public void ToQueryString_translates_IsNullOrWhiteSpace_to_isempty_of_trim()
+    {
+        using var context = CreateContext();
+        var kql = context.Logs.Where(log => string.IsNullOrWhiteSpace(log.Message)).ToQueryString();
+
+        Assert.Contains("| where isempty(trim(", kql);
+        Assert.Contains("Message", kql);
+    }
+
+    [Fact]
     public void ToQueryString_includes_projection_orderby_and_take()
     {
         using var context = CreateContext();
