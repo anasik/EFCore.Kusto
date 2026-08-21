@@ -57,7 +57,9 @@ jobs:
       # clean skip into an active failure. It needs a self-hosted runner on Azure with MI enabled,
       # which is a separate infrastructure decision, not a secret to add here.
       - name: Azure CLI login (for TokenCredential_can_query_cluster)
-        if: ${{ secrets.KUSTO_TEST_USE_AZURE_CLI_TOKEN != '' }}
+        if: ${{ env.KUSTO_TEST_USE_AZURE_CLI_TOKEN != '' }}
+        env:
+          KUSTO_TEST_USE_AZURE_CLI_TOKEN: ${{ secrets.KUSTO_TEST_USE_AZURE_CLI_TOKEN }}
         run: >
           az login --service-principal
           -u "${{ secrets.KUSTO_TEST_CLIENT_ID }}"
