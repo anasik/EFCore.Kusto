@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.8</Version>
+        <Version>0.2.9</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,9 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.2.9:
+            - Fixed batched deletes (e.g. RemoveRange) generating malformed KQL for 2+ rows due to an unbalanced parenthesis in AppendDeleteOperation.
+
             Version 0.2.8:
             - Added string.IsNullOrEmpty/IsNullOrWhiteSpace translation to isempty()/isempty(trim(...)); previously unsupported and silently missed actual-null rows via EF Core's default expansion.
             - Added opt-in UseIsEmptyForStringIsNull(): when enabled, x.Field == null / != null on a string operand generates isempty()/isnotempty() instead of isnull()/isnotnull(), since a Kusto string column can never hold a database null. Disabled by default.
