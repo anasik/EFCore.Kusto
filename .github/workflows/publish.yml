@@ -1,0 +1,105 @@
+name: Publish NuGet package
+
+# Triggered by pushing a version tag (e.g. `git tag -a v0.2.8 -m "v0.2.8"; git push --tags`).
+# Mirrors the manual release recipe previously run by hand: clean/build/pack/push, then a tag.
+# The tag push itself *is* the "git stuff" here — this workflow reacts to it rather than creating it.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the GitHub Release below
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches project version
+        run: |
+          csproj_version=$(grep -oPm1 "(?<=<Version>)[^<]+" src/EFCore.Kusto/EFCore.Kusto.csproj)
+          if [ "$csproj_version" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Tag ${{ github.ref_name }} does not match <Version>$csproj_version</Version> in EFCore.Kusto.csproj"
+            exit 1
+          fi
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      # KustoCredentialTests are SkippableFacts: they skip themselves cleanly when their env vars
+      # are unset, so this step works today with none of the below configured. Set the matching
+      # repo secrets to make individual tests actually exercise a live cluster instead of skipping:
+      #   KUSTO_TEST_CLUSTER, KUSTO_TEST_DATABASE                — required by all four tests
+      #   KUSTO_TEST_TENANT_ID/CLIENT_ID/CLIENT_SECRET           — enables ApplicationRegistration_*,
+      #                                                             and (via the AZURE_* env vars
+      #                                                             below) DefaultAzureCredential_*
+      #   KUSTO_TEST_USE_AZURE_CLI_TOKEN                          — enables TokenCredential_* (paired
+      #                                                             with the az-login step below)
+      # KUSTO_TEST_USE_MANAGED_IDENTITY is intentionally never wired here:  Managed Identity is a
+      # property of the Azure compute the code runs on, which a GitHub-hosted runner isn't. Setting
+      # that secret wouldn't make ManagedIdentity_can_query_cluster pass — it would turn it from a
+      # clean skip into an active failure. It needs a self-hosted runner on Azure with MI enabled,
+      # which is a separate infrastructure decision, not a secret to add here.
+      - name: Azure CLI login (for TokenCredential_can_query_cluster)
+        if: ${{ secrets.KUSTO_TEST_USE_AZURE_CLI_TOKEN != '' }}
+        run: >
+          az login --service-principal
+          -u "${{ secrets.KUSTO_TEST_CLIENT_ID }}"
+          -p "${{ secrets.KUSTO_TEST_CLIENT_SECRET }}"
+          --tenant "${{ secrets.KUSTO_TEST_TENANT_ID }}"
+
+      - name: Test
+        run: dotnet test -c Release --no-build
+        env:
+          KUSTO_TEST_CLUSTER: ${{ secrets.KUSTO_TEST_CLUSTER }}
+          KUSTO_TEST_DATABASE: ${{ secrets.KUSTO_TEST_DATABASE }}
+          KUSTO_TEST_QUERY: ${{ secrets.KUSTO_TEST_QUERY }}
+          KUSTO_TEST_TENANT_ID: ${{ secrets.KUSTO_TEST_TENANT_ID }}
+          KUSTO_TEST_CLIENT_ID: ${{ secrets.KUSTO_TEST_CLIENT_ID }}
+          KUSTO_TEST_CLIENT_SECRET: ${{ secrets.KUSTO_TEST_CLIENT_SECRET }}
+          KUSTO_TEST_USE_AZURE_CLI_TOKEN: ${{ secrets.KUSTO_TEST_USE_AZURE_CLI_TOKEN }}
+          # DefaultAzureCredential_can_query_cluster falls back to reading these standard names.
+          AZURE_CLIENT_ID: ${{ secrets.KUSTO_TEST_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.KUSTO_TEST_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.KUSTO_TEST_TENANT_ID }}
+
+      - name: Pack
+        run: dotnet pack src/EFCore.Kusto -c Release --no-build -o ./artifacts
+
+      - name: Push to NuGet
+        run: >
+          dotnet nuget push "./artifacts/*.nupkg"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Extract changelog section for this version
+        run: |
+          awk -v ver="[${{ steps.version.outputs.version }}]" '
+            $0 ~ "^## \\[" { if (found) exit; if (index($0, ver)) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "${{ github.ref_name }}" ./artifacts/*.nupkg
+          --title "${{ github.ref_name }}"
+          --notes-file release_notes.md
