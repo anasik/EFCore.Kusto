@@ -51,7 +51,7 @@ public static class KustoLiteral
         };
     }
 
-    private static string TypedNull(string? kqlType) => kqlType switch
+    internal static string TypedNull(string? kqlType) => kqlType switch
     {
         "string" => "\"\"",
         "guid" => "guid(null)",

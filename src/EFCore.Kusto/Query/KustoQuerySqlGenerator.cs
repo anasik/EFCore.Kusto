@@ -486,7 +486,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         if (caseExpression.ElseResult != null)
             Visit(caseExpression.ElseResult);
         else
-            Sql.Append("null");
+            AppendNullLiteral(caseExpression.Type);
         Sql.Append(")");
 
         return caseExpression;
@@ -685,7 +685,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
     {
         if (c.Value == null)
         {
-            Sql.Append("null");
+            AppendNullLiteral(c.Type);
             return c;
         }
 
@@ -705,6 +705,29 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
         }
 
         return c;
+    }
+
+    /// <summary>
+    /// Appends the KQL null literal for <paramref name="clrType"/>. KQL has no bare <c>null</c>
+    /// keyword — every null is typed (<c>int(null)</c>, <c>datetime(null)</c>, ...), and strings
+    /// specifically can't hold null at all (falls back to <c>""</c>, matching <see cref="KustoLiteral"/>'s
+    /// convention for the update/command paths).
+    /// </summary>
+    private void AppendNullLiteral(Type clrType)
+        => Sql.Append(KustoLiteral.TypedNull(KqlTypeName(Nullable.GetUnderlyingType(clrType) ?? clrType)));
+
+    private static string? KqlTypeName(Type clrType)
+    {
+        if (clrType == typeof(string)) return "string";
+        if (clrType == typeof(Guid)) return "guid";
+        if (clrType == typeof(bool)) return "bool";
+        if (clrType == typeof(DateTime) || clrType == typeof(DateTimeOffset) || clrType == typeof(DateOnly)) return "datetime";
+        if (clrType == typeof(int) || clrType == typeof(short) || clrType == typeof(byte) || clrType == typeof(sbyte) || clrType == typeof(ushort)) return "int";
+        if (clrType == typeof(long) || clrType == typeof(uint) || clrType == typeof(ulong)) return "long";
+        if (clrType == typeof(double) || clrType == typeof(float)) return "real";
+        if (clrType == typeof(decimal)) return "decimal";
+        if (clrType == typeof(TimeSpan) || clrType == typeof(TimeOnly)) return "timespan";
+        return null;
     }
 
     // ============================================================
