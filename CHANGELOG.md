@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.9]
+### Fixed
+- Batched deletes (e.g. `RemoveRange`) generated malformed KQL for 2+ rows due to an unbalanced parenthesis in `AppendDeleteOperation`.
+
 ## [0.2.8]
 ### Added
 - `string.IsNullOrEmpty`/`IsNullOrWhiteSpace` now translate to `isempty()`/`isempty(trim(...))`. Previously unsupported: the call fell through to EF Core's default expansion (`IsNull(x) OR x == ""`), which this provider's null handling collapsed into a bare `x == ""`, silently missing rows where the column was actually null.
