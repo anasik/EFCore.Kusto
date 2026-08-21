@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Linq.Expressions;
+using EFCore.Kusto.Storage;
 using Kusto.Cloud.Platform.Utils;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
@@ -7,7 +8,8 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace EFCore.Kusto.Query;
 
-public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) : QuerySqlGenerator(deps)
+public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, bool treatNullAsEmpty = false)
+    : QuerySqlGenerator(deps)
 {
     private int _selectDepth;
     private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
@@ -399,9 +401,12 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
     protected override Expression VisitSqlUnary(SqlUnaryExpression sqlUnaryExpression)
     {
+        var useEmptyCheck = treatNullAsEmpty
+            && sqlUnaryExpression.Operand.TypeMapping is StringTypeMapping;
+
         if (sqlUnaryExpression.OperatorType == ExpressionType.Equal)
         {
-            Sql.Append($" isnull(");
+            Sql.Append(useEmptyCheck ? " isempty(" : " isnull(");
             Visit(sqlUnaryExpression.Operand);
             Sql.Append($") ");
             return sqlUnaryExpression;
@@ -409,7 +414,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps) :
 
         if (sqlUnaryExpression.OperatorType == ExpressionType.NotEqual)
         {
-            Sql.Append($" isnotnull(");
+            Sql.Append(useEmptyCheck ? " isnotempty(" : " isnotnull(");
             Visit(sqlUnaryExpression.Operand);
             Sql.Append($") ");
             return sqlUnaryExpression;
