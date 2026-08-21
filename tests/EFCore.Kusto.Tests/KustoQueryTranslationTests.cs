@@ -3,7 +3,9 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using EFCore.Kusto.Extensions;
+using EFCore.Kusto.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace EFCore.Kusto.Tests;
@@ -51,6 +53,23 @@ public class KustoQueryTranslationTests
         Assert.Contains($"and IsActive", kql);
     }
 
+
+    [Fact]
+    public void ToQueryString_emits_typed_null_for_ternary_null_branch()
+    {
+        // KQL has no bare `null` keyword — every null literal is typed (int(null), datetime(null),
+        // ...), and strings can't hold null at all. A ternary with an explicit null branch (as
+        // opposed to `x.Field == null`, which never reaches this code path — it gets rewritten to
+        // isnull()/isempty() before a literal is ever generated) is one of the few ways a bare
+        // null constant reaches VisitSqlConstant/VisitCase directly.
+        using var context = CreateContext();
+        var kql = context.Logs
+            .Select(log => log.IsActive ? log.Message : null)
+            .ToQueryString();
+
+        Assert.Contains("Message, \"\")", kql);
+        Assert.DoesNotContain(", null)", kql);
+    }
 
     [Fact]
     public void ToQueryString_translates_IsNullOrEmpty_to_isempty()
@@ -149,10 +168,89 @@ public class KustoQueryTranslationTests
         Assert.Contains($"| take {takeParam}", kql);
     }
 
-    private static TestContext CreateContext()
+    [Fact]
+    public void ToQueryString_default_null_check_on_string_uses_isnull()
+    {
+        using var context = CreateContext();
+        var kql = context.Logs.Where(log => log.Message == null).ToQueryString();
+
+        Assert.Contains("isnull(Message)", kql);
+    }
+
+    [Fact]
+    public void ToQueryString_isempty_for_string_isnull_rewrites_null_check_to_isempty()
+    {
+        using var context = CreateContext(o => o.UseIsEmptyForStringIsNull());
+        var kql = context.Logs.Where(log => log.Message == null).ToQueryString();
+
+        Assert.Contains("isempty(Message)", kql);
+        Assert.DoesNotContain("isnull(", kql);
+    }
+
+    [Fact]
+    public void ToQueryString_isempty_for_string_isnull_rewrites_not_null_check_to_isnotempty()
+    {
+        using var context = CreateContext(o => o.UseIsEmptyForStringIsNull());
+        var kql = context.Logs.Where(log => log.Message != null).ToQueryString();
+
+        Assert.Contains("isnotempty(Message)", kql);
+        Assert.DoesNotContain("isnotnull(", kql);
+    }
+
+    [Fact]
+    public void KustoSingletonOptions_validate_throws_when_shared_provider_reused_with_different_setting()
+    {
+        // Simulates the UseInternalServiceProvider scenario ISingletonOptions.Validate exists to
+        // guard: a single internal service provider gets initialized once from the first context's
+        // options, so a second context sharing that provider with a different TreatNullAsEmpty value
+        // must be rejected rather than silently keep serving the first context's setting.
+        var sharedProvider = new ServiceCollection()
+            .AddEntityFrameworkKusto()
+            .BuildServiceProvider();
+
+        var options1 = new DbContextOptionsBuilder<TestContext>()
+            .UseKusto(ClusterUrl, Database)
+            .UseInternalServiceProvider(sharedProvider)
+            .Options;
+
+        using var context1 = new TestContext(options1);
+        context1.Logs.Where(log => log.Message == null).ToQueryString();
+
+        var options2 = new DbContextOptionsBuilder<TestContext>()
+            .UseKusto(ClusterUrl, Database, o => o.UseIsEmptyForStringIsNull())
+            .UseInternalServiceProvider(sharedProvider)
+            .Options;
+
+        using var context2 = new TestContext(options2);
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => context2.Logs.Where(log => log.Message == null).ToQueryString());
+
+        Assert.Contains("TreatNullAsEmpty", ex.Message);
+    }
+
+    [Fact]
+    public void ToQueryString_isempty_for_string_isnull_composes_with_join_groupby_orderby_and_paging()
+    {
+        using var context = CreateContext(o => o.UseIsEmptyForStringIsNull());
+
+        var kql = context.Logs
+            .Join(context.Tags, log => log.Id, tag => tag.LogId, (log, tag) => new { log, tag })
+            .Where(x => x.log.Message == null)
+            .GroupBy(x => x.tag.Name)
+            .Select(g => new { Tag = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Tag)
+            .Skip(1)
+            .Take(5)
+            .ToQueryString();
+
+        Assert.Contains("isempty(Message)", kql);
+        Assert.DoesNotContain("isnull(", kql);
+    }
+
+    private static TestContext CreateContext(Action<KustoDbContextOptionsBuilder>? kustoOptionsAction = null)
     {
         var options = new DbContextOptionsBuilder<TestContext>()
-            .UseKusto(ClusterUrl, Database)
+            .UseKusto(ClusterUrl, Database, kustoOptionsAction)
             .Options;
 
         return new TestContext(options);
@@ -166,6 +264,7 @@ public class KustoQueryTranslationTests
         }
 
         public DbSet<LogRecord> Logs => Set<LogRecord>();
+        public DbSet<Tag> Tags => Set<Tag>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -173,7 +272,7 @@ public class KustoQueryTranslationTests
             {
                 builder.ToTable("Logs");
                 builder.HasKey(x => x.Id);
-                builder.Property(x => x.Message).HasColumnName("Message");
+                builder.Property(x => x.Message).HasColumnName("Message").IsRequired(false);
                 builder.Property(x => x.Created);
                 builder.Property(x => x.Amount);
                 builder.Property(x => x.Score);
@@ -181,18 +280,32 @@ public class KustoQueryTranslationTests
                 builder.Property(x => x.Count);
                 builder.Property(x => x.IsActive);
             });
+
+            modelBuilder.Entity<Tag>(builder =>
+            {
+                builder.ToTable("Tags");
+                builder.HasKey(x => x.Id);
+            });
         }
     }
 
     private sealed class LogRecord
     {
         public int Id { get; set; }
-        public string Message { get; set; } = string.Empty;
+        public string? Message { get; set; }
         public DateTime Created { get; set; }
         public decimal Amount { get; set; }
         public double Score { get; set; }
         public Guid ReferenceId { get; set; }
         public long Count { get; set; }
         public bool IsActive { get; set; }
+    }
+
+    // Minimal second entity to give the composition test above something to join
+    private sealed class Tag
+    {
+        public int Id { get; set; }
+        public int LogId { get; set; }
+        public string Name { get; set; } = string.Empty;
     }
 }
