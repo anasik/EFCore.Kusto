@@ -1,4 +1,5 @@
 using EFCore.Kusto.Diagnostics.Internal;
+using EFCore.Kusto.Infrastructure.Internal;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore.Query;
@@ -52,6 +53,9 @@ public static class KustoServiceCollectionExtensions
             .TryAdd<IHistoryRepository, KustoHistoryRepository>()
             .TryAdd<IMigrator, KustoMigrator>()
             .TryAdd<IMigrationCommandExecutor, KustoMigrationCommandExecutor>()
+            .TryAdd<ISingletonOptions, IKustoSingletonOptions>(p => p.GetRequiredService<IKustoSingletonOptions>())
+            .TryAddProviderSpecificServices(b => b
+                .TryAddSingleton<IKustoSingletonOptions, KustoSingletonOptions>())
             .TryAddCoreServices();
 
         return services;
