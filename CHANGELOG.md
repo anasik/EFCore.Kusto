@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8]
+### Added
+- `string.IsNullOrEmpty`/`IsNullOrWhiteSpace` now translate to `isempty()`/`isempty(trim(...))`. Previously unsupported: the call fell through to EF Core's default expansion (`IsNull(x) OR x == ""`), which this provider's null handling collapsed into a bare `x == ""`, silently missing rows where the column was actually null.
+- Opt-in `UseIsEmptyForStringIsNull()` on `KustoDbContextOptionsBuilder`: when enabled, `x.Field == null` / `!= null` on a string-typed operand generates `isempty()`/`isnotempty()` instead of `isnull()`/`isnotnull()`. A Kusto string column can never actually hold a database null, so `isnull()` is structurally always false for one — this switches to Kusto's own recommended idiom instead. Disabled by default; existing `isnull`/`isnotnull` behavior is unchanged unless called.
+
+### Fixed
+- KQL has no bare `null` keyword. Null literals reached through a constant or `CASE` branch (e.g. a ternary with an explicit `null` arm) previously rendered as the literal text `null`, which Kusto doesn't recognize. These now render as typed nulls (`int(null)`, `datetime(null)`, `guid(null)`, ...); strings fall back to `""`, since a Kusto string can't represent null at all.
+
 ## [0.2.7]
 ### Added
 - Support for inner and right joins (previously only left join was translated).

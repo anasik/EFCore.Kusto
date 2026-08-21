@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.7</Version>
+        <Version>0.2.8</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,11 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.2.8:
+            - Added string.IsNullOrEmpty/IsNullOrWhiteSpace translation to isempty()/isempty(trim(...)); previously unsupported and silently missed actual-null rows via EF Core's default expansion.
+            - Added opt-in UseIsEmptyForStringIsNull(): when enabled, x.Field == null / != null on a string operand generates isempty()/isnotempty() instead of isnull()/isnotnull(), since a Kusto string column can never hold a database null. Disabled by default.
+            - Fixed null literals reached through a constant or CASE branch (e.g. a ternary's null arm) rendering as the invalid bare text "null" instead of a typed null (int(null), datetime(null), guid(null), ...) or, for strings, "".
+
             Version 0.2.7:
             - Added support for inner and right joins (previously only left join was translated); unrecognized join expression types now throw instead of silently falling back to a left join.
             - Fixed DbType.Decimal being mapped to Kusto's "real" (binary floating-point) type instead of its own "decimal" type, which could silently lose precision on decimal parameters.
