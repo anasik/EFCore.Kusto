@@ -97,6 +97,26 @@ public static class KustoDbContextOptionsBuilderExtensions
     }
 
     /// <summary>
+    /// Opts into treating a string column's null check as an empty-string check: once enabled,
+    /// <c>x.Field == null</c> / <c>!= null</c> on a string-typed operand is generated as
+    /// <c>isempty()</c>/<c>isnotempty()</c> instead of <c>isnull()</c>/<c>isnotnull()</c>. 
+    /// </summary>
+    /// <param name="builder">The Kusto options builder being configured.</param>
+    /// <param name="enabled">Whether the rewrite is enabled.</param>
+    public static KustoDbContextOptionsBuilder UseIsEmptyForStringIsNull(
+        this KustoDbContextOptionsBuilder builder,
+        bool enabled = true)
+    {
+        var ext = builder.OptionsBuilder.Options.FindExtension<KustoOptionsExtension>()
+                  ?? new KustoOptionsExtension();
+
+        ext = ext.WithTreatNullAsEmpty(enabled);
+        ((IDbContextOptionsBuilderInfrastructure)builder.OptionsBuilder).AddOrUpdateExtension(ext);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Configures the provider to use an explicitly supplied <see cref="TokenCredential"/>.
     /// </summary>
     public static KustoDbContextOptionsBuilder UseTokenCredential(

@@ -52,6 +52,12 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     /// </summary>
     public TokenCredential? Credential { get; private set; }
 
+    /// <summary>
+    /// Gets whether <c>x.Field == null</c> / <c>!= null</c> on a string-typed operand is
+    /// generated as <c>isempty()</c>/<c>isnotempty()</c> instead of <c>isnull()</c>/<c>isnotnull()</c>.
+    /// </summary>
+    public bool TreatNullAsEmpty { get; private set; }
+
     public KustoOptionsExtension() { }
 
     private KustoOptionsExtension(KustoOptionsExtension copyFrom)
@@ -65,6 +71,7 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         ApplicationTenantId = copyFrom.ApplicationTenantId;
         ApplicationClientSecret = copyFrom.ApplicationClientSecret;
         Credential = copyFrom.Credential;
+        TreatNullAsEmpty = copyFrom.TreatNullAsEmpty;
     }
 
     protected override RelationalOptionsExtension Clone()
@@ -135,6 +142,16 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         return clone;
     }
 
+    /// <summary>
+    /// Returns a copy of the extension with <see cref="TreatNullAsEmpty"/> set.
+    /// </summary>
+    public KustoOptionsExtension WithTreatNullAsEmpty(bool enabled)
+    {
+        var clone = new KustoOptionsExtension(this);
+        clone.TreatNullAsEmpty = enabled;
+        return clone;
+    }
+
     public override void ApplyServices(IServiceCollection services)
         => services.AddEntityFrameworkKusto();
 
@@ -160,14 +177,16 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
 
         public override int GetServiceProviderHashCode()
             => HashCode.Combine(
-                _extension.ClusterUrl,
-                _extension.Database,
-                _extension.AuthenticationStrategy,
-                _extension.ManagedIdentityClientId,
-                _extension.ApplicationClientId,
-                _extension.ApplicationTenantId,
-                _extension.ApplicationClientSecret,
-                _extension.Credential?.GetType());
+                HashCode.Combine(
+                    _extension.ClusterUrl,
+                    _extension.Database,
+                    _extension.AuthenticationStrategy,
+                    _extension.ManagedIdentityClientId,
+                    _extension.ApplicationClientId,
+                    _extension.ApplicationTenantId,
+                    _extension.ApplicationClientSecret,
+                    _extension.Credential?.GetType()),
+                _extension.TreatNullAsEmpty);
 
         public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other)
         {
