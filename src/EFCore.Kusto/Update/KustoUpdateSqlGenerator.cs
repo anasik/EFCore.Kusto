@@ -49,7 +49,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         }
         else
         {
-            commandStringBuilder.Append($" or {predicate})");
+            commandStringBuilder.Append($" or {predicate}");
         }
 
         requiresTransaction = false;
