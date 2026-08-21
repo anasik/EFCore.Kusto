@@ -21,7 +21,7 @@ public class KustoCredentialTests
     private const string ApplicationClientSecretVariable = "KUSTO_TEST_CLIENT_SECRET";
     private const string TokenCredentialSwitch = "KUSTO_TEST_USE_AZURE_CLI_TOKEN";
 
-    [Fact]
+    [SkippableFact]
     public async Task DefaultAzureCredential_can_query_cluster()
     {
         var config = KustoIntegrationConfig.LoadOrSkip();
@@ -32,7 +32,7 @@ public class KustoCredentialTests
         Assert.NotEqual(0, rows);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task ManagedIdentity_can_query_cluster()
     {
         var config = KustoIntegrationConfig.LoadOrSkip(ManagedIdentitySwitch);
@@ -45,7 +45,7 @@ public class KustoCredentialTests
         Assert.NotEqual(0, rows);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task ApplicationRegistration_can_query_cluster()
     {
         var config = KustoIntegrationConfig.LoadOrSkip(ApplicationTenantIdVariable, ApplicationClientIdVariable,
@@ -63,7 +63,7 @@ public class KustoCredentialTests
         Assert.NotEqual(0, rows);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task TokenCredential_can_query_cluster()
     {
         var config = KustoIntegrationConfig.LoadOrSkip(TokenCredentialSwitch);
@@ -125,18 +125,13 @@ public class KustoCredentialTests
             var database = Environment.GetEnvironmentVariable(DatabaseVariable);
             var query = Environment.GetEnvironmentVariable(QueryVariable) ?? "print 1";
 
-            if (string.IsNullOrWhiteSpace(cluster) || string.IsNullOrWhiteSpace(database))
-            {
-                throw new Exception(
-                    $"Set {ClusterVariable} and {DatabaseVariable} to run integration tests against a live Kusto cluster.");
-            }
+            Skip.If(string.IsNullOrWhiteSpace(cluster) || string.IsNullOrWhiteSpace(database),
+                $"Set {ClusterVariable} and {DatabaseVariable} to run integration tests against a live Kusto cluster.");
 
             foreach (var variable in requiredVariables)
             {
-                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(variable)))
-                {
-                    throw new Exception($"Set {variable} to run this integration test.");
-                }
+                Skip.If(string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(variable)),
+                    $"Set {variable} to run this integration test.");
             }
 
             return new KustoIntegrationConfig(cluster, database, query);
