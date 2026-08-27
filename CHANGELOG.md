@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.10]
+### Fixed
+- `string.Contains`/`StartsWith`/`EndsWith` (the plain single-`string`-argument overloads) now translate to Kusto's native `contains_cs`/`startswith_cs`/`endswith_cs` operators. Previously unsupported: the call fell through untranslated, throwing `NotSupportedException` — notably breaking OData's `$filter=contains(...)` (and `startswith`/`endswith`) query functions. The `_cs` (case-sensitive) operator variants are used to match C#'s case-sensitive default semantics and this provider's existing case-sensitive `==`/`strcmp`-based comparisons; Kusto's plain `contains`/`startswith`/`endswith` are case-insensitive by default.
+
 ## [0.2.9]
 ### Fixed
 - Batched deletes (e.g. `RemoveRange`) generated malformed KQL for 2+ rows due to an unbalanced parenthesis in `AppendDeleteOperation`.
