@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Linq.Expressions;
+using EFCore.Kusto.Query.Internal;
 using EFCore.Kusto.Storage;
 using Kusto.Cloud.Platform.Utils;
 using Microsoft.EntityFrameworkCore.Query;
@@ -131,6 +132,21 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
     /// <c>COUNT(DISTINCT col)</c>). Non-aggregate function calls fall through
     /// to the base implementation.
     /// </summary>
+    protected override Expression VisitExtension(Expression node)
+    {
+        if (node is KustoStringOperatorExpression op)
+        {
+            Sql.Append("(");
+            Visit(op.Operand);
+            Sql.Append($" {op.KustoOperator} ");
+            Visit(op.Pattern);
+            Sql.Append(")");
+            return node;
+        }
+
+        return base.VisitExtension(node);
+    }
+
     protected override Expression VisitSqlFunction(SqlFunctionExpression fn)
     {
         if (fn.Name == "COALESCE" && fn.Arguments?.Count > 0

@@ -1,4 +1,5 @@
 using System.Reflection;
+using EFCore.Kusto.Query.Internal;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Query;
@@ -22,6 +23,15 @@ public sealed class KustoStringMethodTranslator(ISqlExpressionFactory sqlExpress
     private static readonly MethodInfo IsNullOrWhiteSpaceMethod =
         typeof(string).GetMethod(nameof(string.IsNullOrWhiteSpace), [typeof(string)])!;
 
+    private static readonly MethodInfo ContainsMethod =
+        typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
+
+    private static readonly MethodInfo StartsWithMethod =
+        typeof(string).GetMethod(nameof(string.StartsWith), [typeof(string)])!;
+
+    private static readonly MethodInfo EndsWithMethod =
+        typeof(string).GetMethod(nameof(string.EndsWith), [typeof(string)])!;
+
     public SqlExpression? Translate(
         SqlExpression? instance,
         MethodInfo method,
@@ -43,7 +53,31 @@ public sealed class KustoStringMethodTranslator(ISqlExpressionFactory sqlExpress
             return IsEmpty(trimmed);
         }
 
+        // _cs ("case sensitive"): Kusto's plain contains/startswith/endswith
+        // are case-insensitive by default, unlike C#'s Contains/StartsWith/EndsWith.
+        if (method == ContainsMethod)
+            return StringOperator("contains_cs", instance!, arguments[0]);
+
+        if (method == StartsWithMethod)
+            return StringOperator("startswith_cs", instance!, arguments[0]);
+
+        if (method == EndsWithMethod)
+            return StringOperator("endswith_cs", instance!, arguments[0]);
+
         return null;
+    }
+
+    private SqlExpression StringOperator(string kustoOperator, SqlExpression operand, SqlExpression pattern)
+    {
+        // ApplyTypeMapping/ApplyDefaultTypeMapping only know how to re-mount
+        // built-in SqlExpression subtypes, so a custom node has to have its
+        // mappings resolved and attached here instead of relying on them.
+        var stringMapping = ExpressionExtensions.InferTypeMapping(operand, pattern);
+        operand = sqlExpressionFactory.ApplyTypeMapping(operand, stringMapping);
+        pattern = sqlExpressionFactory.ApplyTypeMapping(pattern, stringMapping);
+
+        var boolMapping = sqlExpressionFactory.ApplyDefaultTypeMapping(sqlExpressionFactory.Constant(true)).TypeMapping;
+        return new KustoStringOperatorExpression(kustoOperator, operand, pattern, boolMapping);
     }
 
     private SqlExpression IsEmpty(SqlExpression argument)
