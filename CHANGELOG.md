@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.11]
+### Fixed
+- `Any(predicate)`/`All(predicate)` over a shadow array-column property (`EF.Property<T>(entity, "col").AsQueryable().Any/All(...)`) silently discarded the predicate whenever it wasn't a single equality/inequality against one constant, collapsing to "array is non-empty" regardless of what the predicate actually checked. Compound predicates (`Any(a => a == x || a == y)`, `All(a => a != x && a != y)`) now translate correctly into repeated array-membership checks; anything outside that shape (mixed `&&`/`||`, ranges, method calls) now throws `NotSupportedException` instead of silently returning the wrong answer.
+- `Queryable.Contains` over the same shadow array-column property mis-typed a parameterized non-`string` value (e.g. a captured `int`), binding it with `DbType = String` instead of its correct type.
+
 ## [0.2.10]
 ### Fixed
 - `string.Contains`/`StartsWith`/`EndsWith` (the plain single-`string`-argument overloads) now translate to Kusto's native `contains_cs`/`startswith_cs`/`endswith_cs` operators. Previously unsupported: the call fell through untranslated, throwing `NotSupportedException` — notably breaking OData's `$filter=contains(...)` (and `startswith`/`endswith`) query functions. The `_cs` (case-sensitive) operator variants are used to match C#'s case-sensitive default semantics and this provider's existing case-sensitive `==`/`strcmp`-based comparisons; Kusto's plain `contains`/`startswith`/`endswith` are case-insensitive by default.
