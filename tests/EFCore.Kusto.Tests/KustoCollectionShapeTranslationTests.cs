@@ -78,6 +78,28 @@ public class KustoCollectionShapeTranslationTests
     }
 
     [Fact]
+    public void Any_bare_inequality_checks_for_a_differing_element()
+    {
+        using var context = CreateContext();
+        var kql = context.Properties
+            .Where(p => EF.Property<List<string>>(p, "AccessibilityFeatures").AsQueryable().Any(a => a != "Levered Handles"))
+            .ToQueryString();
+
+        Assert.Contains("array_length(set_difference(parse_json(AccessibilityFeatures), pack_array(\"Levered Handles\"))) > 0", kql);
+    }
+
+    [Fact]
+    public void All_bare_equality_checks_every_element_matches()
+    {
+        using var context = CreateContext();
+        var kql = context.Properties
+            .Where(p => EF.Property<List<string>>(p, "AccessibilityFeatures").AsQueryable().All(a => a == "Levered Handles"))
+            .ToQueryString();
+
+        Assert.Contains("array_length(set_difference(parse_json(AccessibilityFeatures), pack_array(\"Levered Handles\"))) == 0", kql);
+    }
+
+    [Fact]
     public void Any_with_compound_predicate_should_honor_predicate_content()
     {
         using var context = CreateContext();
@@ -115,6 +137,32 @@ public class KustoCollectionShapeTranslationTests
         Assert.NotEqual(kqlZzzAndYyy, kqlLeveredAndRamp);
         Assert.Contains("Levered Handles", kqlLeveredAndRamp);
         Assert.Contains("Ramp", kqlLeveredAndRamp);
+    }
+
+    [Fact]
+    public void Any_with_mixed_equality_and_inequality_leaves_honors_both()
+    {
+        using var context = CreateContext();
+        var kql = context.Properties
+            .Where(p => EF.Property<List<string>>(p, "AccessibilityFeatures").AsQueryable()
+                .Any(a => a == "Levered Handles" || a != "Ramp"))
+            .ToQueryString();
+
+        Assert.Contains("array_index_of(parse_json(AccessibilityFeatures), \"Levered Handles\") <> -1", kql);
+        Assert.Contains("array_length(set_difference(parse_json(AccessibilityFeatures), pack_array(\"Ramp\"))) > 0", kql);
+    }
+
+    [Fact]
+    public void All_with_mixed_inequality_and_equality_leaves_honors_both()
+    {
+        using var context = CreateContext();
+        var kql = context.Properties
+            .Where(p => EF.Property<List<string>>(p, "AccessibilityFeatures").AsQueryable()
+                .All(a => a != "Levered Handles" && a == "Ramp"))
+            .ToQueryString();
+
+        Assert.Contains("array_index_of(parse_json(AccessibilityFeatures), \"Levered Handles\") == -1", kql);
+        Assert.Contains("array_length(set_difference(parse_json(AccessibilityFeatures), pack_array(\"Ramp\"))) == 0", kql);
     }
 
     private static PropertyTestContext CreateContext()

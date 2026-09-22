@@ -76,8 +76,9 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
             {
                 bool isAny = methodCall.Method.Name == nameof(Queryable.Any);
 
-                // Supported: Any(a => a == x || a == y || ...), All(a => a != x && a != y && ...).
-                // Anything else (mixed &&/||, ranges, method calls) throws below.
+                // Supported: Any(a => a==x || a!=y || ...), All(a => a!=x && a==y && ...) — any
+                // mix of ==/!= leaves against a constant, combined via OrElse (Any) / AndAlso
+                // (All). Anything else (mixed &&/||, ranges, method calls) throws below.
                 var predicateLambda = methodCall.Arguments.Count == 2
                     ? methodCall.Arguments[1] switch
                     {
@@ -103,20 +104,14 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
 
                     throw new NotSupportedException(
                         $"Unsupported {(isAny ? "Any" : "All")} predicate over array column '{columnName}': only "
-                        + (isAny ? "disjunctions (||) of equality" : "conjunctions (&&) of inequality")
-                        + " checks against a constant are supported.");
+                        + (isAny ? "disjunctions (||)" : "conjunctions (&&)")
+                        + " of equality/inequality checks against a constant are supported.");
                 }
 
                 // Any() with no predicate: array non-empty check.
-                var parsedJson = deps.SqlExpressionFactory.Function(
-                    "parse_json",
-                    new SqlExpression[] { sqlCollection },
-                    nullable: true,
-                    argumentsPropagateNullability: new[] { true },
-                    typeof(object), dummyMapping);
                 var arrayLength = deps.SqlExpressionFactory.Function(
                     "array_length",
-                    new SqlExpression[] { parsedJson },
+                    new SqlExpression[] { ParseJson(sqlCollection, dummyMapping) },
                     nullable: true,
                     argumentsPropagateNullability: new[] { true },
                     typeof(int));
@@ -139,8 +134,10 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
     // ------------------------------------------------------------
 
     /// <summary>
-    /// Collects <c>parameter == const</c> (Any) / <c>!= const</c> (All) leaves,
-    /// recursing through OrElse (Any) / AndAlso (All). Returns false — not a
+    /// Collects <c>parameter == const</c> / <c>!= const</c> leaves (either
+    /// operator, in any position), recursing through OrElse (Any) / AndAlso
+    /// (All) — both quantifiers soundly distribute over their own combinator
+    /// regardless of what each leaf itself checks. Returns false — not a
     /// partial result — on any other shape.
     /// </summary>
     private bool TryCollectArrayPredicateLeaves(
@@ -161,13 +158,19 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
                 && TryCollectArrayPredicateLeaves(combinedNode.Right, parameter, isAny, sqlCollection, dummyMapping, leaves);
         }
 
-        var leafOperator = isAny ? ExpressionType.Equal : ExpressionType.NotEqual;
-        if (node is BinaryExpression leaf && leaf.NodeType == leafOperator)
+        if (node is BinaryExpression leaf
+            && (leaf.NodeType == ExpressionType.Equal || leaf.NodeType == ExpressionType.NotEqual))
         {
             Expression? constSide = leaf.Left == parameter ? leaf.Right : leaf.Right == parameter ? leaf.Left : null;
             if (constSide != null && Visit(constSide) is SqlExpression sqlValue)
             {
-                leaves.Add(BuildArrayMembershipCheck(sqlCollection, sqlValue, dummyMapping, negate: !isAny));
+                // Equal-under-Any / NotEqual-under-All is membership (Contains/NotContains);
+                // the opposite operator needs the set-difference check instead — see
+                // BuildSetDifferenceCheck. Both are still sound leaves here (see summary).
+                var naturalOperator = isAny ? ExpressionType.Equal : ExpressionType.NotEqual;
+                leaves.Add(leaf.NodeType == naturalOperator
+                    ? BuildArrayMembershipCheck(sqlCollection, sqlValue, dummyMapping, negate: !isAny)
+                    : BuildSetDifferenceCheck(sqlCollection, sqlValue, dummyMapping, isEmpty: !isAny));
                 return true;
             }
         }
@@ -186,16 +189,9 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
         // converter, and applying that to a scalar throws (verified: InvalidCastException).
         sqlValue = deps.SqlExpressionFactory.ApplyDefaultTypeMapping(sqlValue);
 
-        var parsedJson = deps.SqlExpressionFactory.Function(
-            "parse_json",
-            new SqlExpression[] { sqlCollection },
-            nullable: true,
-            argumentsPropagateNullability: new[] { true },
-            typeof(object), dummyMapping);
-
         var arrayIndexOf = deps.SqlExpressionFactory.Function(
             "array_index_of",
-            new SqlExpression[] { parsedJson, sqlValue },
+            new SqlExpression[] { ParseJson(sqlCollection, dummyMapping), sqlValue },
             nullable: true,
             argumentsPropagateNullability: new[] { true, true },
             typeof(int));
@@ -205,6 +201,39 @@ public sealed class KustoSqlTranslatingExpressionVisitor(
             ? deps.SqlExpressionFactory.Equal(arrayIndexOf, minusOne)
             : deps.SqlExpressionFactory.NotEqual(arrayIndexOf, minusOne);
     }
+
+    /// <summary>
+    /// <c>array_length(set_difference(parse_json(collection), pack_array(value))) &gt; 0</c>
+    /// (<c>== 0</c> when <paramref name="isEmpty"/>) — "some element isn't value" / "every
+    /// element is value", verified via Kusto's set_difference/pack_array docs.
+    /// </summary>
+    private SqlExpression BuildSetDifferenceCheck(
+        SqlExpression sqlCollection, SqlExpression sqlValue, RelationalTypeMapping? dummyMapping, bool isEmpty)
+    {
+        sqlValue = deps.SqlExpressionFactory.ApplyDefaultTypeMapping(sqlValue);
+
+        var packed = deps.SqlExpressionFactory.Function(
+            "pack_array", new[] { sqlValue }, nullable: false,
+            argumentsPropagateNullability: new[] { true }, typeof(object), dummyMapping);
+
+        var difference = deps.SqlExpressionFactory.Function(
+            "set_difference", new[] { ParseJson(sqlCollection, dummyMapping), packed }, nullable: true,
+            argumentsPropagateNullability: new[] { true, true }, typeof(object), dummyMapping);
+
+        var length = deps.SqlExpressionFactory.Function(
+            "array_length", new[] { difference }, nullable: true,
+            argumentsPropagateNullability: new[] { true }, typeof(int));
+
+        var zero = deps.SqlExpressionFactory.Constant(0, typeof(int));
+        return isEmpty
+            ? deps.SqlExpressionFactory.Equal(length, zero)
+            : deps.SqlExpressionFactory.GreaterThan(length, zero);
+    }
+
+    private SqlExpression ParseJson(SqlExpression sqlCollection, RelationalTypeMapping? dummyMapping)
+        => deps.SqlExpressionFactory.Function(
+            "parse_json", new[] { sqlCollection }, nullable: true,
+            argumentsPropagateNullability: new[] { true }, typeof(object), dummyMapping);
 
     // ------------------------------------------------------------
     // OVERRIDE: Translatable Expressions
