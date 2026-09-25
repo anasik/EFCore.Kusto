@@ -117,6 +117,28 @@ public static class KustoDbContextOptionsBuilderExtensions
     }
 
     /// <summary>
+    /// Sets the maximum length, in characters, of each <c>.update</c> command in the script that applies
+    /// a batch of updates. A batch that exceeds it continues in another command of the same script.
+    /// Defaults to 2,095,674; Kusto rejects a command longer than 2,097,152 characters.
+    /// </summary>
+    /// <param name="builder">The Kusto options builder being configured.</param>
+    /// <param name="length">The maximum length of each <c>.update</c> command.</param>
+    public static KustoDbContextOptionsBuilder UseMaxUpdateCommandLength(
+        this KustoDbContextOptionsBuilder builder,
+        int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+
+        var ext = builder.OptionsBuilder.Options.FindExtension<KustoOptionsExtension>()
+                  ?? new KustoOptionsExtension();
+
+        ext = ext.WithMaxUpdateCommandLength(length);
+        ((IDbContextOptionsBuilderInfrastructure)builder.OptionsBuilder).AddOrUpdateExtension(ext);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Configures the provider to use an explicitly supplied <see cref="TokenCredential"/>.
     /// </summary>
     public static KustoDbContextOptionsBuilder UseTokenCredential(

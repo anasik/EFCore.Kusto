@@ -81,25 +81,49 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
-        var table = command.TableName;
-        var predicate = BuildPredicate(command);
-        var extend = BuildExtendClause(command.ColumnModifications);
-
-        if (commandPosition == 0)
-        {
-            commandStringBuilder.AppendLine($".update table {table} delete D append A <|");
-            commandStringBuilder.AppendLine($"let D = {table} | where __PREDICATE__;");
-            commandStringBuilder.AppendLine($"let A = union({table} | where {predicate} | extend {extend})");
-        }
-        else
-        {
-            commandStringBuilder.AppendLine(
-                $",({table} | where {predicate} | extend {extend})");
-        }
-
         requiresTransaction = false;
         return ResultSetMapping.NoResults;
     }
+
+    internal static string UpdateCommand(IEnumerable<IReadOnlyModificationCommand> section)
+    {
+        var commands = section.ToList();
+        var table = commands[0].TableName;
+        var keyColumns = string.Join(", ", KeyColumns(commands[0]).Select(c => c.ColumnName));
+        var matchesAnyKey = string.Join(" or ", commands.Select(BuildPredicate).Distinct());
+
+        return new StringBuilder()
+            .AppendLine($".update table {table} delete D append A <|")
+            .AppendLine($"let U = datatable({ChangeTableSchema(commands[0])}) [")
+            .AppendLine(string.Join("," + Environment.NewLine, commands.Select(ChangeTableRow)))
+            .AppendLine("];")
+            .AppendLine($"let D = {table} | where {matchesAnyKey};")
+            .AppendLine($"let A = {table} | where {matchesAnyKey}")
+            .AppendLine($"  | lookup kind=inner (U) on {keyColumns}")
+            .AppendLine($"  | extend {AssignChangedColumns(commands)}")
+            .Append("  | project-away changes;")
+            .ToString();
+    }
+
+    private static string ChangeTableSchema(IReadOnlyModificationCommand command)
+        => string.Join(", ", KeyColumns(command)
+            .Select(c => $"{c.ColumnName}:{c.ColumnType}")
+            .Append("changes:dynamic"));
+
+    private static string ChangeTableRow(IReadOnlyModificationCommand command)
+        => string.Join(", ", KeyColumns(command)
+            .Select(c => KustoLiteral.Format(c.Value ?? c.OriginalValue, c.ColumnType))
+            .Append($"dynamic({BuildJsonPayload(command, skipNulls: false)})"));
+
+    private static string AssignChangedColumns(IEnumerable<IReadOnlyModificationCommand> commands)
+        => string.Join(", ", commands
+            .SelectMany(c => c.ColumnModifications.Where(m => m.IsWrite))
+            .Select(m => m.ColumnName)
+            .Distinct(StringComparer.Ordinal)
+            .Select(c => $"{c} = iff(bag_has_key(changes, '{c}'), changes['{c}'], {c})"));
+
+    private static IEnumerable<IColumnModification> KeyColumns(IReadOnlyModificationCommand command)
+        => command.ColumnModifications.Where(c => c.IsKey);
 
     public ResultSetMapping AppendStoredProcedureCall(StringBuilder commandStringBuilder,
         IReadOnlyModificationCommand command,
@@ -121,7 +145,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         return string.Join(" and ", pkParts.Concat(concurrencyParts));
     }
 
-    private static string BuildJsonPayload(IReadOnlyModificationCommand command)
+    private static string BuildJsonPayload(IReadOnlyModificationCommand command, bool skipNulls = true)
     {
         var writes = command.ColumnModifications
             .Where(c => c.IsWrite)
@@ -138,7 +162,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
 
             foreach (var col in writes)
             {
-                if (col.Value == null || col.Value == DBNull.Value)
+                if (skipNulls && (col.Value == null || col.Value == DBNull.Value))
                 {
                     continue;
                 }
@@ -152,15 +176,6 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
-    }
-
-    private static string BuildExtendClause(IReadOnlyList<IColumnModification> updates)
-    {
-        var assignments = updates
-            .Where(c => c.IsWrite)
-            .Select(c => $"{c.ColumnName} = {KustoLiteral.Format(c.Value, c.ColumnType)}");
-
-        return string.Join(", ", assignments);
     }
 
     private static void WriteJsonValue(Utf8JsonWriter writer, object? value)

@@ -58,6 +58,12 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     /// </summary>
     public bool TreatNullAsEmpty { get; private set; }
 
+    /// <summary>
+    /// Gets the maximum length, in characters, of each <c>.update</c> command in the script that applies
+    /// a batch of updates. Kusto rejects a command longer than 2,097,152 characters.
+    /// </summary>
+    public int MaxUpdateCommandLength { get; private set; } = 2_095_674;
+
     public KustoOptionsExtension() { }
 
     private KustoOptionsExtension(KustoOptionsExtension copyFrom)
@@ -72,6 +78,7 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         ApplicationClientSecret = copyFrom.ApplicationClientSecret;
         Credential = copyFrom.Credential;
         TreatNullAsEmpty = copyFrom.TreatNullAsEmpty;
+        MaxUpdateCommandLength = copyFrom.MaxUpdateCommandLength;
     }
 
     protected override RelationalOptionsExtension Clone()
@@ -149,6 +156,16 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     {
         var clone = new KustoOptionsExtension(this);
         clone.TreatNullAsEmpty = enabled;
+        return clone;
+    }
+
+    /// <summary>
+    /// Returns a copy of the extension with <see cref="MaxUpdateCommandLength"/> set.
+    /// </summary>
+    public KustoOptionsExtension WithMaxUpdateCommandLength(int length)
+    {
+        var clone = new KustoOptionsExtension(this);
+        clone.MaxUpdateCommandLength = length;
         return clone;
     }
 
