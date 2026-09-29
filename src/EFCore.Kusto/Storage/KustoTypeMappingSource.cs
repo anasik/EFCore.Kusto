@@ -29,7 +29,7 @@ public sealed class KustoTypeMappingSource : RelationalTypeMappingSource
         = new DateOnlyTypeMapping("date");
 
     private static readonly RelationalTypeMapping _guid
-        = new GuidTypeMapping("string");
+        = new GuidTypeMapping("guid");
 
     private static readonly RelationalTypeMapping _byte
         = new ByteArrayTypeMapping("string", DbType.String);

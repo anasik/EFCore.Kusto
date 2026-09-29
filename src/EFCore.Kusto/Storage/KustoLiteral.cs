@@ -46,6 +46,7 @@ public static class KustoLiteral
                 => $"int({Convert.ToString(value, CultureInfo.InvariantCulture)})",
             uint or long or ulong
                 => Convert.ToString(value, CultureInfo.InvariantCulture)!,
+            byte[] bytes => $"\"{Convert.ToBase64String(bytes)}\"",
             IEnumerable e => $"\"{Escape(JsonSerializer.Serialize(e))}\"",
             _ => $"dynamic({JsonSerializer.Serialize(value)})",
         };
