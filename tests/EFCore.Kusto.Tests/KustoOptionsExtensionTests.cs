@@ -102,6 +102,29 @@ public class KustoOptionsExtensionTests
         Assert.IsType<ClientSecretCredential>(credential);
     }
 
+    [Fact]
+    public void UseMaxUpdateCommandLength_sets_the_length_and_survives_later_options()
+    {
+        var builder = new DbContextOptionsBuilder<TestContext>();
+
+        builder.UseKusto(Cluster, Database, kusto => kusto.UseMaxUpdateCommandLength(1_500_000).UseManagedIdentity());
+
+        var extension = builder.Options.FindExtension<KustoOptionsExtension>();
+
+        Assert.Equal(1_500_000, extension!.MaxUpdateCommandLength);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void UseMaxUpdateCommandLength_rejects_non_positive_lengths(int length)
+    {
+        var builder = new DbContextOptionsBuilder<TestContext>();
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => builder.UseKusto(Cluster, Database, kusto => kusto.UseMaxUpdateCommandLength(length)));
+    }
+
     private sealed class TestContext : DbContext
     {
         public TestContext(DbContextOptions<TestContext> options)

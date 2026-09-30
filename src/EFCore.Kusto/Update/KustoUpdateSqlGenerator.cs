@@ -81,22 +81,6 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
-        var table = command.TableName;
-        var predicate = BuildPredicate(command);
-        var extend = BuildExtendClause(command.ColumnModifications);
-
-        if (commandPosition == 0)
-        {
-            commandStringBuilder.AppendLine($".update table {table} delete D append A <|");
-            commandStringBuilder.AppendLine($"let D = {table} | where __PREDICATE__;");
-            commandStringBuilder.AppendLine($"let A = union({table} | where {predicate} | extend {extend})");
-        }
-        else
-        {
-            commandStringBuilder.AppendLine(
-                $",({table} | where {predicate} | extend {extend})");
-        }
-
         requiresTransaction = false;
         return ResultSetMapping.NoResults;
     }
@@ -121,7 +105,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         return string.Join(" and ", pkParts.Concat(concurrencyParts));
     }
 
-    private static string BuildJsonPayload(IReadOnlyModificationCommand command)
+    internal static string BuildJsonPayload(IReadOnlyModificationCommand command, bool skipNulls = true)
     {
         var writes = command.ColumnModifications
             .Where(c => c.IsWrite)
@@ -138,7 +122,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
 
             foreach (var col in writes)
             {
-                if (col.Value == null || col.Value == DBNull.Value)
+                if (skipNulls && (col.Value == null || col.Value == DBNull.Value))
                 {
                     continue;
                 }
@@ -152,15 +136,6 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
-    }
-
-    private static string BuildExtendClause(IReadOnlyList<IColumnModification> updates)
-    {
-        var assignments = updates
-            .Where(c => c.IsWrite)
-            .Select(c => $"{c.ColumnName} = {KustoLiteral.Format(c.Value, c.ColumnType)}");
-
-        return string.Join(", ", assignments);
     }
 
     private static void WriteJsonValue(Utf8JsonWriter writer, object? value)
