@@ -1,9 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0]
+### Added
+- Date/time component members now translate to their Kusto equivalents on `DateTime`, `DateOnly` and `DateTimeOffset`: `Year`, `Month`, `Day`, `DayOfYear`, `Hour`, `Minute`, `Second`, `Millisecond`, `Date` and `DayOfWeek`. Previously any predicate using one failed with `NotSupportedException`, notably OData `$filter` date comparisons, which are rewritten as `Year * 10000 + Month * 100 + Day > @param`.
+
 ### Changed
+- **Breaking:** `Guid` properties now map to Kusto's native `guid` type instead of `string`, and new migrations create `guid` columns. Tables created by earlier versions with a `string` column for a `Guid` property must be altered or recreated: reading such a column into a `Guid` property fails, because the reader cannot cast a `string` column to `Guid`.
 - Batched updates now send the changed values as an inline `datatable` joined on the key, instead of one `union` leg per row. The old shape grew the query-operator count with the batch size: 1000 rows became a ~470 KB command with 1000 legs, measured at ~35 s and ~30 CPU-seconds against a 443-column table; the same batch now takes ~2 s and ~1 CPU-second. Each row carries only the columns it changed, and any column it does not mention keeps its live value, so two rows in one batch may change different columns without overwriting each other. `bag_has_key` is used rather than a null check so that clearing a column stays distinguishable from leaving it alone.
 - Batched updates are split into `.update` commands that each stay within a maximum length, instead of one command that Kusto rejected with `SYN0009` once it passed 2,097,152 characters. A command takes as many rows as fit and the rest continue in the next one, so a batch just over the limit becomes one full command and a small one. The maximum is set with `UseMaxUpdateCommandLength` and defaults to 2,095,674: Kusto measures an `.update` command as 454 characters plus the table name's length longer than its text, so a command of exactly 2,097,152 is still rejected, and 2,095,674 stays within the limit for any table name up to Kusto's 1,024-character maximum. The commands are not transactional: if one fails, the ones before it stay applied, and the `DbUpdateException` lists the entries of the failed command.
+
+### Fixed
+- `Any(predicate)`/`All(predicate)` over a shadow array-column property now accept any mix of `==` and `!=` leaves against constants (`Any(a => a == x || a != y)`, `All(a => a != x && a == y)`). Previously these shapes threw `NotSupportedException`.
+- `byte[]` values were written into KQL literals as a JSON array (`[1,2,3]`) instead of base64, which is what the reader decodes.
+- `net8.0` only: the transitive `Microsoft.Extensions.Caching.Memory` (8.0.0) and `Microsoft.Bcl.Memory` (9.0.0), both with known high-severity advisories, are now pinned to patched versions (8.0.1 and 9.0.14).
 
 ## [0.2.11]
 ### Fixed

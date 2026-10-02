@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.2.11</Version>
+        <Version>0.3.0</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,15 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.0:
+            - BREAKING: Guid properties now map to Kusto's native guid type instead of string, and new migrations create guid columns. Tables created by earlier versions with a string column for a Guid property must be altered or recreated: reading such a column into a Guid property fails, because the reader cannot cast a string column to Guid.
+            - Added translation of date/time components (Year, Month, Day, DayOfYear, Hour, Minute, Second, Millisecond, Date, DayOfWeek) on DateTime, DateOnly and DateTimeOffset. Predicates using them previously threw NotSupportedException, notably OData $filter date comparisons.
+            - Batched updates are now sent as an inline datatable joined on the key, instead of one union leg per row: a 1000-row batch against a 443-column table went from ~35 s and ~30 CPU-seconds to ~2 s and ~1 CPU-second. Each row carries only the columns it changed, so rows changing different columns no longer overwrite each other.
+            - Batched updates are split into .update commands that each stay within a maximum length (UseMaxUpdateCommandLength, default 2,095,674), instead of one command that Kusto rejected with SYN0009 past 2,097,152 characters. The commands are not transactional: if one fails, the ones before it stay applied.
+            - Fixed Any(predicate)/All(predicate) over a shadow array-column property throwing NotSupportedException for predicates mixing == and != leaves, e.g. Any(a => a == x || a != y) and All(a => a != x &amp;&amp; a == y).
+            - Fixed byte[] values being written into KQL literals as a JSON array instead of base64.
+            - net8.0: pinned the transitive Microsoft.Extensions.Caching.Memory (8.0.1) and Microsoft.Bcl.Memory (9.0.14) to versions without known high-severity advisories.
+
             Version 0.2.11:
             - Fixed Any(predicate)/All(predicate) over a shadow array-column property silently discarding the predicate for anything beyond a single equality/inequality against one constant (it collapsed to "array is non-empty" regardless of the predicate). Compound predicates (Any(a => a == x || a == y), All(a => a != x &amp;&amp; a != y)) now translate correctly; unsupported shapes now throw instead of silently returning the wrong answer.
             - Fixed Queryable.Contains over the same shadow array-column property mis-typing a parameterized non-string value (e.g. a captured int), binding it with DbType = String instead of its correct type.
@@ -107,6 +116,8 @@
     <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1"/>
+        <PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.14"/>
     </ItemGroup>
 
     <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
