@@ -74,6 +74,9 @@ public sealed class KustoDataReader : DbDataReader
             return (T)(object)Array.Empty<byte>();
         }
 
+        if (typeof(T) == typeof(decimal) && value is SqlDecimal)
+            return (T)(object)GetDecimal(ordinal);
+
         if (typeof(T) == typeof(DateOnly))
             return (T)(object)DateOnly.FromDateTime((DateTime)value);
 
@@ -142,7 +145,18 @@ public sealed class KustoDataReader : DbDataReader
     public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
     public override double GetDouble(int ordinal) => _inner.GetDouble(ordinal);
-    public override decimal GetDecimal(int ordinal) => ((SqlDecimal)_inner.GetValue(ordinal)).Value;
+    public override decimal GetDecimal(int ordinal)
+    {
+        var value = (SqlDecimal)_inner.GetValue(ordinal);
+        try
+        {
+            return value.Value;
+        }
+        catch (OverflowException)
+        {
+            return SqlDecimal.AdjustScale(value, -Math.Max(0, value.Precision - 28), true).Value;
+        }
+    }
     public override bool GetBoolean(int ordinal) => _inner.GetBoolean(ordinal);
     public override float GetFloat(int ordinal) => _inner.GetFloat(ordinal);
     public override short GetInt16(int ordinal) => _inner.GetInt16(ordinal);
