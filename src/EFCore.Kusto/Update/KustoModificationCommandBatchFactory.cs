@@ -126,7 +126,8 @@ public class KustoModificationCommandBatch(
     private static string ChangeTableRow(IReadOnlyModificationCommand command)
         => string.Join(", ", KeyColumns(command)
             .Select(c => KustoLiteral.Format(c.Value ?? c.OriginalValue, c.ColumnType))
-            .Append($"dynamic({KustoUpdateSqlGenerator.BuildJsonPayload(command, skipNulls: false)})"));
+            .Append($"dynamic({{{string.Join(", ", command.ColumnModifications.Where(c => c.IsWrite)
+                .Select(c => $"{KustoLiteral.Format(c.ColumnName, "string")}: {KustoLiteral.Format(c.Value, c.ColumnType)}"))}}})"));
 
     private static string AssignChangedColumn(string column)
         => $"{column} = iff(bag_has_key(changes, '{column}'), changes['{column}'], {column})";

@@ -70,6 +70,23 @@ public class KustoUpdateBatchTests
         Assert.Equal([1, 1], commands.Select(RowsIn));
     }
 
+    [Fact]
+    public void Changed_values_are_sent_as_typed_literals()
+    {
+        var capture = new CaptureAndSuppress();
+        using var context = new TestContext(capture, null);
+        var listing = new Listing { Id = "K0001", OnMarketDate = new DateOnly(2022, 12, 11), Price = 1m };
+        context.Attach(listing);
+        listing.OnMarketDate = new DateOnly(2022, 12, 12);
+        listing.Price = 2.5m;
+
+        context.SaveChanges();
+
+        var command = Assert.Single(capture.Commands);
+        Assert.Contains("\"OnMarketDate\": datetime(2022-12-12)", command);
+        Assert.Contains("\"Price\": decimal(2.5)", command);
+    }
+
     private static List<string> SaveUpdates(int rows, int? maxUpdateCommandLength, Action<Item, int>? change = null)
     {
         var capture = new CaptureAndSuppress();
@@ -130,6 +147,13 @@ public class KustoUpdateBatchTests
         public string? Note { get; set; }
     }
 
+    private sealed class Listing
+    {
+        public string Id { get; set; } = "";
+        public DateOnly OnMarketDate { get; set; }
+        public decimal Price { get; set; }
+    }
+
     private sealed class TestContext(DbCommandInterceptor interceptor, int? maxUpdateCommandLength) : DbContext
     {
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -144,6 +168,7 @@ public class KustoUpdateBatchTests
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Item>(e => e.ToTable("Items").HasKey(x => x.Id));
+            modelBuilder.Entity<Listing>(e => e.ToTable("Listings").HasKey(x => x.Id));
         }
     }
 }
