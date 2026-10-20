@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1]
+### Changed
+- Batched updates now send each changed value as a typed KQL literal (`datetime(...)`, `decimal(...)`, ...) instead of a JSON-serialized value, so dates and decimals keep their Kusto type.
+
+### Fixed
+- OData `$apply` aggregates generated invalid KQL. `aggregate(...)` with several aggregates, `groupby(...)` with `aggregate(...)`, and `$count` failed with `Duplicate column name(s): Name, Value` or `Syntax error: Expected: ,`, because OData's repeated `Name`/`Value` result columns and its constant `Name` projections were written straight into `| summarize`. Constants no longer appear in the aggregate list, and every result column gets a unique name shared by the `summarize`, `project` and `order by` lines.
+- Type conversions inside queries were emitted as SQL `CAST(x AS type)`, which Kusto rejects. They now emit the KQL conversion functions (`todecimal`, `toreal`, `tolong`, `toint`, `tostring`, `tobool`, `todatetime`, `toguid`), and a conversion between identical types is dropped. A `DateOnly` conversion maps to `datetime`, since KQL has no date type.
+- `GroupBy(...).OrderBy(g => g.Count())` (and `LongCount()`) placed before `Select` emitted `order by count()`, which is invalid KQL, instead of the aggregate's column name.
+- `decimal` results wider than .NET's `decimal` (for example `avg` over a `decimal` column, which Kusto returns with up to 34 digits) threw `Conversion overflows.`. They are now rounded to 28 digits; values that already fit keep full precision.
+
 ## [0.3.0]
 ### Added
 - Date/time component members now translate to their Kusto equivalents on `DateTime`, `DateOnly` and `DateTimeOffset`: `Year`, `Month`, `Day`, `DayOfYear`, `Hour`, `Minute`, `Second`, `Millisecond`, `Date` and `DayOfWeek`. Previously any predicate using one failed with `NotSupportedException`, notably OData `$filter` date comparisons, which are rewritten as `Year * 10000 + Month * 100 + Day > @param`.

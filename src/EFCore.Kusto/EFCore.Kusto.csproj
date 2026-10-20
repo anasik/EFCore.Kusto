@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.3.0</Version>
+        <Version>0.3.1</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,13 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.1:
+            - Fixed OData $apply aggregates generating invalid KQL: aggregate, groupby + aggregate, several aggregates together and $count failed with "Duplicate column name(s): Name, Value" or "Syntax error: Expected: ,". Constants no longer appear in the summarize aggregate list and every result column now gets a unique name.
+            - Fixed type conversions inside queries being emitted as SQL CAST(x AS type), which Kusto rejects. They now emit todecimal, toreal, tolong, toint, tostring, tobool, todatetime and toguid, and a conversion between identical types is dropped. A DateOnly conversion maps to datetime.
+            - Fixed GroupBy(...).OrderBy(g =&gt; g.Count()) (and LongCount()) placed before Select emitting "order by count()", which is invalid KQL, instead of the aggregate's column name.
+            - Fixed decimal results wider than .NET's decimal (for example avg over a decimal column, up to 34 digits) throwing "Conversion overflows."; they are now rounded to 28 digits.
+            - Batched updates now send each changed value as a typed KQL literal (datetime(...), decimal(...), ...) instead of a JSON-serialized value, so dates and decimals keep their Kusto type.
+
             Version 0.3.0:
             - BREAKING: Guid properties now map to Kusto's native guid type instead of string, and new migrations create guid columns. Tables created by earlier versions with a string column for a Guid property must be altered or recreated: reading such a column into a Guid property fails, because the reader cannot cast a string column to Guid.
             - Added translation of date/time components (Year, Month, Day, DayOfYear, Hour, Minute, Second, Millisecond, Date, DayOfWeek) on DateTime, DateOnly and DateTimeOffset. Predicates using them previously threw NotSupportedException, notably OData $filter date comparisons.
