@@ -443,6 +443,84 @@ public class KustoGroupByTests
     }
 
     [Fact]
+    public void GroupBy_with_OrderBy_Count_emits_order_by_alias()
+    {
+        using var ctx = CreateContext();
+
+        var query = ctx.Sale
+            .GroupBy(s => s.Region)
+            .Select(g => new { Region = g.Key, N = g.Count() })
+            .OrderBy(x => x.N);
+
+        const string expected =
+            "Sale\n" +
+            "| summarize N = count() by Region\n" +
+            "| order by N asc\n" +
+            "| project Region = Region, N";
+
+        Assert.Equal(expected, InlineParameters(query.ToQueryString()));
+    }
+
+    [Fact]
+    public void GroupBy_with_OrderBy_Count_before_Select_emits_order_by_alias()
+    {
+        using var ctx = CreateContext();
+
+        var query = ctx.Sale
+            .GroupBy(s => s.Region)
+            .OrderBy(g => g.Count())
+            .Select(g => new { Region = g.Key, N = g.Count() });
+
+        const string expected =
+            "Sale\n" +
+            "| summarize N = count() by Region\n" +
+            "| order by N asc\n" +
+            "| project Region = Region, N";
+
+        Assert.Equal(expected, InlineParameters(query.ToQueryString()));
+    }
+
+    [Fact]
+    public void GroupBy_with_OrderByDescending_LongCount_before_Select_emits_order_by_alias()
+    {
+        using var ctx = CreateContext();
+
+        var query = ctx.Sale
+            .GroupBy(s => s.Region)
+            .OrderByDescending(g => g.LongCount())
+            .Select(g => new { Region = g.Key, N = g.LongCount() });
+
+        const string expected =
+            "Sale\n" +
+            "| summarize N = count() by Region\n" +
+            "| order by N desc\n" +
+            "| project Region = Region, N";
+
+        Assert.Equal(expected, InlineParameters(query.ToQueryString()));
+    }
+
+    [Fact]
+    public void GroupBy_with_OrderBy_Count_before_Select_and_Take_emits_order_by_alias_then_take()
+    {
+        using var ctx = CreateContext();
+
+        var query = ctx.Sale
+            .GroupBy(s => s.Region)
+            .OrderBy(g => g.Count())
+            .Select(g => new { Region = g.Key, N = g.Count() })
+            .Take(3);
+
+        const string expected =
+            "Sale\n" +
+            "| summarize N = count() by Region\n" +
+            "| order by N asc\n" +
+            "| project Region = Region, N\n" +
+            "| take 3";
+
+        Assert.Equal(expected, InlineParameters(query.ToQueryString()));
+    }
+
+    [Fact]
     public void GroupBy_with_OrderBy_key_emits_order_by_key()
     {
         using var ctx = CreateContext();

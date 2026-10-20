@@ -100,15 +100,18 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         Sql.AppendLine();
         Sql.Append("| summarize");
 
+        var aliases = ResolveAliases(select);
         bool first = true;
-        foreach (var proj in select.Projection)
+        for (int i = 0; i < select.Projection.Count; i++)
         {
-            if (select.GroupBy.Any(k => ReferenceEquals(k, proj.Expression) || k.Equals(proj.Expression)))
+            var proj = select.Projection[i];
+            if (!ContainsAggregate(proj.Expression)
+                || select.GroupBy.Any(k => ReferenceEquals(k, proj.Expression) || k.Equals(proj.Expression)))
                 continue;
 
             Sql.Append(first ? " " : ", ");
             first = false;
-            Sql.Append(AliasFor(proj));
+            Sql.Append(aliases[i]);
             Sql.Append(" = ");
             Visit(proj.Expression);
         }
@@ -243,15 +246,51 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         return kql + "_" + col;
     }
 
+    /// <summary>
+    /// Final, unique column name for each projection slot (null when the slot
+    /// is unaliased). Shared by the <c>| summarize</c>, <c>| project</c> and
+    /// <c>| order by</c> lines so they agree even when EF hands over repeated
+    /// aliases (e.g. OData's <c>Name</c>/<c>Value</c> containers).
+    /// </summary>
+    private static string?[] ResolveAliases(SelectExpression select)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new string?[select.Projection.Count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            var proj = select.Projection[i];
+            var alias = ContainsAggregate(proj.Expression) ? AliasFor(proj) : proj.Alias;
+            result[i] = alias.IsNullOrEmpty() ? null : MakeUniqueAlias(alias, used);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// <c>Equals</c>, falling back to a structural function-name/argument comparison: EF's
+    /// ordering copy of an aggregate (e.g. <c>COUNT(*)</c>) is not always <c>Equals</c> to the
+    /// projected one even though it is the same call.
+    /// </summary>
+    private static bool IsSameExpression(SqlExpression a, SqlExpression b)
+        => ReferenceEquals(a, b)
+           || a.Equals(b)
+           || (a is SqlFunctionExpression fa && b is SqlFunctionExpression fb
+               && fa.Name == fb.Name
+               && fa.Arguments?.Count == fb.Arguments?.Count
+               && (fa.Arguments ?? []).Zip(fb.Arguments ?? [], IsSameExpression).All(same => same))
+           || (a is SqlFragmentExpression ra && b is SqlFragmentExpression rb && ra.Sql == rb.Sql);
+
     private static bool TryFindAggregateProjectionAlias(
         SelectExpression select, SqlExpression ordering, out string? alias)
     {
-        foreach (var proj in select.Projection)
+        var aliases = ResolveAliases(select);
+        for (int i = 0; i < select.Projection.Count; i++)
         {
+            var proj = select.Projection[i];
             if (AliasHint(proj.Expression) == null) continue;
-            if (ReferenceEquals(proj.Expression, ordering) || proj.Expression.Equals(ordering))
+            if (IsSameExpression(proj.Expression, ordering))
             {
-                alias = AliasFor(proj);
+                alias = aliases[i];
                 return true;
             }
         }
@@ -444,6 +483,26 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             return sqlUnaryExpression;
         }
 
+        if (sqlUnaryExpression.OperatorType == ExpressionType.Convert)
+        {
+            var storeType = sqlUnaryExpression.TypeMapping?.StoreType;
+            if (storeType != null)
+            {
+                // KQL has no date type: `date` (DateOnly) is a datetime.
+                var kqlType = storeType == "date" ? "datetime" : storeType;
+
+                // Same store type on both sides: the conversion is a no-op in KQL.
+                var operandType = sqlUnaryExpression.Operand.TypeMapping?.StoreType;
+                if (operandType == storeType || operandType == kqlType)
+                    return Visit(sqlUnaryExpression.Operand);
+
+                Sql.Append("to" + kqlType + "(");
+                Visit(sqlUnaryExpression.Operand);
+                Sql.Append(")");
+                return sqlUnaryExpression;
+            }
+        }
+
         return base.VisitSqlUnary(sqlUnaryExpression);
     }
 
@@ -563,7 +622,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         Sql.AppendLine();
         Sql.Append("| project ");
 
-        var usedAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var aliases = ResolveAliases(select);
 
         for (int i = 0; i < select.Projection.Count; i++)
         {
@@ -576,16 +635,12 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             // on the preceding `| summarize` line; emit just the alias here.
             if (ContainsAggregate(proj.Expression))
             {
-                Sql.Append(AliasFor(proj));
+                Sql.Append(aliases[i]);
                 continue;
             }
 
-            var alias = proj.Alias;
-            if (!alias.IsNullOrEmpty())
-            {
-                alias = MakeUniqueAlias(alias, usedAliases);
-                Sql.Append(alias + " = ");
-            }
+            if (aliases[i] != null)
+                Sql.Append(aliases[i] + " = ");
 
             if (proj.Expression is RowNumberExpression)
                 Sql.Append("row_number(0)");

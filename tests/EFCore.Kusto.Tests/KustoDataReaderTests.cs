@@ -31,6 +31,49 @@ public class KustoDataReaderTests
     }
 
     [Fact]
+    public void Decimals_wider_than_clr_decimal_are_rounded_instead_of_overflowing()
+    {
+        var wide = SqlDecimal.Parse("1234567.1234567890123456789012345678");
+
+        using var inner = CreateInnerReader(("Avg", typeof(SqlDecimal), wide));
+        using var reader = new KustoDataReader(inner, new FakeCslQueryProvider());
+
+        reader.Read();
+
+        Assert.Throws<OverflowException>(() => wide.Value);
+        Assert.InRange(reader.GetDecimal(reader.GetOrdinal("Avg")), 1234567.12345678m, 1234567.12345679m);
+        Assert.InRange(reader.GetFieldValue<decimal>(reader.GetOrdinal("Avg")), 1234567.12345678m, 1234567.12345679m);
+    }
+
+    [Fact]
+    public void Wide_decimals_with_a_large_leading_digit_are_rounded_to_fit()
+    {
+        // 34 digits; rounding to 29 would still overflow because 9.x exceeds decimal.MaxValue's leading 7.9.
+        var wide = SqlDecimal.Parse("9.123456789012345678901234567890123");
+
+        using var inner = CreateInnerReader(("Avg", typeof(SqlDecimal), wide));
+        using var reader = new KustoDataReader(inner, new FakeCslQueryProvider());
+
+        reader.Read();
+
+        Assert.Equal(9.123456789012345678901234568m, reader.GetDecimal(reader.GetOrdinal("Avg")));
+    }
+
+    [Fact]
+    public void Decimals_that_fit_clr_decimal_keep_full_precision()
+    {
+        var exact29Digits = SqlDecimal.Parse("1.2345678901234567890123456789");
+
+        using var inner = CreateInnerReader(("Exact", typeof(SqlDecimal), exact29Digits));
+        using var reader = new KustoDataReader(inner, new FakeCslQueryProvider());
+
+        reader.Read();
+
+        Assert.Equal(1.2345678901234567890123456789m, reader.GetDecimal(reader.GetOrdinal("Exact")));
+        Assert.Equal(1.2345678901234567890123456789m, reader.GetFieldValue<decimal>(reader.GetOrdinal("Exact")));
+    }
+
+    [Fact]
     public void Typed_getters_match_Kusto_return_shapes_and_handle_failures()
     {
         var now = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
