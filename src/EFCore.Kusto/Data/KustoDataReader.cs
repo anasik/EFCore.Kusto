@@ -142,7 +142,7 @@ public sealed class KustoDataReader : DbDataReader
         }
     }
 
-    public override int GetInt32(int ordinal) => _inner.GetInt32(ordinal);
+    public override int GetInt32(int ordinal) => Convert.ToInt32(_inner.GetValue(ordinal));
     public override long GetInt64(int ordinal) => _inner.GetInt64(ordinal);
     public override double GetDouble(int ordinal) => _inner.GetDouble(ordinal);
     public override decimal GetDecimal(int ordinal)
