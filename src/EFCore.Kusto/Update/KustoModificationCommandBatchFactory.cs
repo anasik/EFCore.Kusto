@@ -127,7 +127,15 @@ public class KustoModificationCommandBatch(
         => string.Join(", ", KeyColumns(command)
             .Select(c => KustoLiteral.Format(c.Value ?? c.OriginalValue, c.ColumnType))
             .Append($"dynamic({{{string.Join(", ", command.ColumnModifications.Where(c => c.IsWrite)
-                .Select(c => $"{KustoLiteral.Format(c.ColumnName, "string")}: {KustoLiteral.Format(c.Value, c.ColumnType)}"))}}})"));
+                .Select(c => $"{KustoLiteral.Format(c.ColumnName, "string")}: {DynamicValue(c.Value, c.ColumnType)}"))}}})"));
+
+    private static string DynamicValue(object? value, string? columnType)
+    {
+        var literal = KustoLiteral.Format(value, columnType);
+        return literal.StartsWith("int(") || literal.StartsWith("decimal(")
+            ? literal[(literal.IndexOf('(') + 1)..^1]
+            : literal;
+    }
 
     private static string AssignChangedColumn(string column)
         => $"{column} = iff(bag_has_key(changes, '{column}'), changes['{column}'], {column})";

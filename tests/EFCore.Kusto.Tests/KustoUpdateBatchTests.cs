@@ -79,12 +79,14 @@ public class KustoUpdateBatchTests
         context.Attach(listing);
         listing.OnMarketDate = new DateOnly(2022, 12, 12);
         listing.Price = 2.5m;
+        listing.Rooms = 3;
 
         context.SaveChanges();
 
         var command = Assert.Single(capture.Commands);
         Assert.Contains("\"OnMarketDate\": datetime(2022-12-12)", command);
-        Assert.Contains("\"Price\": decimal(2.5)", command);
+        Assert.Contains("\"Price\": 2.5", command);
+        Assert.Contains("\"Rooms\": 3", command);
     }
 
     private static List<string> SaveUpdates(int rows, int? maxUpdateCommandLength, Action<Item, int>? change = null)
@@ -152,6 +154,7 @@ public class KustoUpdateBatchTests
         public string Id { get; set; } = "";
         public DateOnly OnMarketDate { get; set; }
         public decimal Price { get; set; }
+        public int Rooms { get; set; }
     }
 
     private sealed class TestContext(DbCommandInterceptor interceptor, int? maxUpdateCommandLength) : DbContext
