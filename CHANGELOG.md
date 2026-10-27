@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2]
+### Fixed
+- Batched updates failed when an `int` or `decimal` column changed, because the changes bag contained `int(...)` and `decimal(...)` literals, which Kusto's `dynamic` literals don't accept. Those values are now sent as bare numbers.
+- Reading an `int` property threw when Kusto returned the column as another numeric type. The value is now converted to `int`.
+
 ## [0.3.1]
 ### Changed
 - Batched updates now send each changed value as a typed KQL literal (`datetime(...)`, `decimal(...)`, ...) instead of a JSON-serialized value, so dates and decimals keep their Kusto type.

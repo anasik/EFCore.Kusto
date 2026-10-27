@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.3.1</Version>
+        <Version>0.3.2</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,10 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.2:
+            - Fixed batched updates failing when an int or decimal column changed: the changes bag contained int(...) and decimal(...) literals, which Kusto's dynamic literals don't accept. Those values are now sent as bare numbers.
+            - Fixed reading an int property throwing when Kusto returned the column as another numeric type; the value is now converted to int.
+
             Version 0.3.1:
             - Fixed OData $apply aggregates generating invalid KQL: aggregate, groupby + aggregate, several aggregates together and $count failed with "Duplicate column name(s): Name, Value" or "Syntax error: Expected: ,". Constants no longer appear in the summarize aggregate list and every result column now gets a unique name.
             - Fixed type conversions inside queries being emitted as SQL CAST(x AS type), which Kusto rejects. They now emit todecimal, toreal, tolong, toint, tostring, tobool, todatetime and toguid, and a conversion between identical types is dropped. A DateOnly conversion maps to datetime.
