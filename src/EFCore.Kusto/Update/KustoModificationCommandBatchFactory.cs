@@ -132,6 +132,8 @@ public class KustoModificationCommandBatch(
     private static string DynamicValue(object? value, string? columnType)
     {
         var literal = KustoLiteral.Format(value, columnType);
+        if (literal.EndsWith("(null)"))
+            return literal is "long(null)" or "real(null)" or "dynamic(null)" ? literal : "null";
         return literal.StartsWith("int(") || literal.StartsWith("decimal(")
             ? literal[(literal.IndexOf('(') + 1)..^1]
             : literal;

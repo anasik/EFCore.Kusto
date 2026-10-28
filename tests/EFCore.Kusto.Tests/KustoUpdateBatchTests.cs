@@ -75,9 +75,10 @@ public class KustoUpdateBatchTests
     {
         var capture = new CaptureAndSuppress();
         using var context = new TestContext(capture, null);
-        var listing = new Listing { Id = "K0001", OnMarketDate = new DateOnly(2022, 12, 11), Price = 1m };
+        var listing = new Listing { Id = "K0001", OnMarketDate = new DateOnly(2022, 12, 11), OffMarketDate = new DateOnly(2023, 1, 1), Price = 1m };
         context.Attach(listing);
         listing.OnMarketDate = new DateOnly(2022, 12, 12);
+        listing.OffMarketDate = null;
         listing.Price = 2.5m;
         listing.Rooms = 3;
 
@@ -87,6 +88,7 @@ public class KustoUpdateBatchTests
         Assert.Contains("\"OnMarketDate\": datetime(2022-12-12)", command);
         Assert.Contains("\"Price\": 2.5", command);
         Assert.Contains("\"Rooms\": 3", command);
+        Assert.Contains("\"OffMarketDate\": null", command);
     }
 
     private static List<string> SaveUpdates(int rows, int? maxUpdateCommandLength, Action<Item, int>? change = null)
@@ -153,6 +155,7 @@ public class KustoUpdateBatchTests
     {
         public string Id { get; set; } = "";
         public DateOnly OnMarketDate { get; set; }
+        public DateOnly? OffMarketDate { get; set; }
         public decimal Price { get; set; }
         public int Rooms { get; set; }
     }
