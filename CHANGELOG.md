@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.3]
+### Fixed
+- Batched updates failed when a column was set to null, because the changes bag contained typed nulls such as `guid(null)`, `datetime(null)` or `bool(null)`, which Kusto's `dynamic` literals don't accept. Those are now sent as `null`; `long(null)`, `real(null)` and `dynamic(null)` are kept.
+
 ## [0.3.2]
 ### Fixed
 - Batched updates failed when an `int` or `decimal` column changed, because the changes bag contained `int(...)` and `decimal(...)` literals, which Kusto's `dynamic` literals don't accept. Those values are now sent as bare numbers.

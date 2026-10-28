@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.3.2</Version>
+        <Version>0.3.3</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,9 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.3:
+            - Fixed batched updates failing when a column was set to null: the changes bag contained typed nulls such as guid(null), datetime(null) or bool(null), which Kusto's dynamic literals don't accept. Those are now sent as null; long(null), real(null) and dynamic(null) are kept.
+
             Version 0.3.2:
             - Fixed batched updates failing when an int or decimal column changed: the changes bag contained int(...) and decimal(...) literals, which Kusto's dynamic literals don't accept. Those values are now sent as bare numbers.
             - Fixed reading an int property throwing when Kusto returned the column as another numeric type; the value is now converted to int.
