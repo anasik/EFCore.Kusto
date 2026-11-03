@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.3.3</Version>
+        <Version>0.3.4</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,10 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.4:
+            - Fixed inserted DateOnly and TimeOnly values being stored as null: the insert payload sent them as JSON-encoded strings with embedded quotes, which Kusto can't parse. They are now sent as plain date and time strings.
+            - Fixed DateOnly and TimeOnly KQL literals being formatted with the current culture, which wrote or matched the wrong date under non-Gregorian cultures such as th-TH or ar-SA. They are now formatted with the invariant culture.
+
             Version 0.3.3:
             - Fixed batched updates failing when a column was set to null: the changes bag contained typed nulls such as guid(null), datetime(null) or bool(null), which Kusto's dynamic literals don't accept. Those are now sent as null; long(null), real(null) and dynamic(null) are kept.
 

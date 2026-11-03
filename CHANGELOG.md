@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.4]
+### Fixed
+- Inserted `DateOnly` and `TimeOnly` values were stored as null, because the insert payload sent them as JSON-encoded strings with embedded quotes (`"\"2026-01-01\""`), which Kusto can't parse. They are now sent as plain `2026-01-01` and `14:00:00.0000000` strings.
+- `DateOnly` and `TimeOnly` KQL literals were formatted with the current culture, so under a non-Gregorian culture such as `th-TH` or `ar-SA` updates, key predicates and query parameters wrote or matched the wrong date. They are now formatted with the invariant culture.
+
 ## [0.3.3]
 ### Fixed
 - Batched updates failed when a column was set to null, because the changes bag contained typed nulls such as `guid(null)`, `datetime(null)` or `bool(null)`, which Kusto's `dynamic` literals don't accept. Those are now sent as `null`; `long(null)`, `real(null)` and `dynamic(null)` are kept.
