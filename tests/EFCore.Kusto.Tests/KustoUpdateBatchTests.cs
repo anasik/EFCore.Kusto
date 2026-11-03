@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using EFCore.Kusto.Extensions;
@@ -102,6 +103,29 @@ public class KustoUpdateBatchTests
 
         var command = Assert.Single(capture.Commands);
         Assert.Contains("\"OnMarketDate\":\"2026-01-01\"", command);
+    }
+
+    [Fact]
+    public void Changed_dates_ignore_the_current_culture()
+    {
+        var culture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("th-TH");
+        try
+        {
+            var capture = new CaptureAndSuppress();
+            using var context = new TestContext(capture, null);
+            var listing = new Listing { Id = "K0001", OnMarketDate = new DateOnly(2022, 12, 11), Price = 1m };
+            context.Attach(listing);
+            listing.OnMarketDate = new DateOnly(2022, 12, 12);
+
+            context.SaveChanges();
+
+            Assert.Contains("\"OnMarketDate\": datetime(2022-12-12)", Assert.Single(capture.Commands));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = culture;
+        }
     }
 
     private static List<string> SaveUpdates(int rows, int? maxUpdateCommandLength, Action<Item, int>? change = null)
