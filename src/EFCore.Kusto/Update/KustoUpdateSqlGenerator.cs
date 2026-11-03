@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using EFCore.Kusto.Storage;
@@ -195,6 +196,14 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
 
             case DateTimeOffset dto:
                 writer.WriteStringValue(dto.ToString("O"));
+                return;
+
+            case DateOnly d:
+                writer.WriteStringValue(d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                return;
+
+            case TimeOnly t:
+                writer.WriteStringValue(t.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture));
                 return;
 
             default:

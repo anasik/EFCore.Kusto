@@ -91,6 +91,19 @@ public class KustoUpdateBatchTests
         Assert.Contains("\"OffMarketDate\": null", command);
     }
 
+    [Fact]
+    public void Inserted_dates_are_sent_as_plain_date_strings()
+    {
+        var capture = new CaptureAndSuppress();
+        using var context = new TestContext(capture, null);
+        context.Add(new Listing { Id = "K0001", OnMarketDate = new DateOnly(2026, 1, 1), Price = 1m });
+
+        context.SaveChanges();
+
+        var command = Assert.Single(capture.Commands);
+        Assert.Contains("\"OnMarketDate\":\"2026-01-01\"", command);
+    }
+
     private static List<string> SaveUpdates(int rows, int? maxUpdateCommandLength, Action<Item, int>? change = null)
     {
         var capture = new CaptureAndSuppress();
