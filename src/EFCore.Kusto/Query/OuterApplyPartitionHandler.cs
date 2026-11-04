@@ -215,7 +215,7 @@ internal class OuterApplyPartitionHandler
         Action<TableExpressionBase> writeSingleFrom,
         Action<SqlExpression> writeJoinPredicate)
     {
-        var predicate = ExtractCorrelationPredicate(crossApply.Table);
+        var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(crossApply.Table);
         if (predicate == null)
             throw new NotSupportedException("Could not extract correlation predicate from CROSS APPLY");
 
@@ -231,11 +231,10 @@ internal class OuterApplyPartitionHandler
             outerKeyCol = outerCol.Name;
         }
 
-        // Push context to track extracted predicate (no partition for CROSS APPLY)
         PushOuterApplyContext(
-            partitionColumn: "",
+            partitionColumn: joinKeyCol ?? "",
             joinKeyColumn: joinKeyCol,
-            partitionOrderings: new(),
+            partitionOrderings: selectWithCorrelation!.Orderings.Select(o => (o.Expression, o.IsAscending)).ToList(),
             correlationPredicate: predicate,
             outerKeyColumn: outerKeyCol);
 
@@ -289,42 +288,12 @@ internal class OuterApplyPartitionHandler
     // PRIVATE: CORRELATION PREDICATE EXTRACTION
     // ============================================================
 
-    private SqlExpression? ExtractCorrelationPredicate(TableExpressionBase applyInner)
-    {
-        if (applyInner is not SelectExpression select)
-            return null;
-
-        return FindCorrelationInSelect(select);
-    }
-
     private (SqlExpression? predicate, SelectExpression? selectWithPredicate) ExtractCorrelationPredicateAndSelect(TableExpressionBase applyInner)
     {
         if (applyInner is not SelectExpression select)
             return (null, null);
 
         return FindCorrelationInSelectWithContext(select);
-    }
-
-    private SqlExpression? FindCorrelationInSelect(SelectExpression select)
-    {
-        if (select.Predicate != null)
-        {
-            var found = FindCorrelationInExpression(select.Predicate);
-            if (found != null)
-                return found;
-        }
-
-        foreach (var table in select.Tables)
-        {
-            if (table is SelectExpression nested)
-            {
-                var found = FindCorrelationInSelect(nested);
-                if (found != null)
-                    return found;
-            }
-        }
-
-        return null;
     }
 
     private (SqlExpression? predicate, SelectExpression? selectWithPredicate) FindCorrelationInSelectWithContext(SelectExpression select)

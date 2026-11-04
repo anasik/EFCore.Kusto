@@ -273,7 +273,10 @@ public class KustoOuterApplyTests
 
         Assert.Contains("| join kind=inner (", kql);
         Assert.DoesNotContain("leftouter", kql);
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey (top", kql);
         Assert.Contains("on $left.ListingKey == $right.ResourceRecordKey", kql);
+        Assert.DoesNotMatch(@"\| project MediaKey = MediaKey, ResourceRecordKey\n\| partition", kql);
+        Assert.Matches(@"\| partition [^\n]*by Order asc\)\n\| project MediaKey = MediaKey, ResourceRecordKey\n", kql);
     }
 
     private static KustoApplyJoinTestContext CreateContext()
