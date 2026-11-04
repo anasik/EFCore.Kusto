@@ -21,9 +21,13 @@ internal class OuterApplyPartitionHandler
         public string? JoinKeyColumn { get; set; }  
         public List<(SqlExpression expr, bool isAscending)> Orderings { get; set; } = new();
         public SqlExpression? ExtractedCorrelationPredicate { get; set; }
+        public string? OuterAlias { get; set; }
+        public string? OuterKeyColumn { get; set; }
     }
 
     private readonly Stack<PartitionContext> _contextStack = new();
+    private int _outerAliasCount;
+    private string? _pendingOuterAlias;
 
     /// <summary>
     /// Gets whether we're currently inside an OUTER/CROSS APPLY context.
@@ -47,6 +51,33 @@ internal class OuterApplyPartitionHandler
     /// </summary>
     public bool IsApplyJoin(TableExpressionBase right) =>
         right is OuterApplyExpression or CrossApplyExpression;
+
+    /// <summary>
+    /// Binds the outer rows rendered so far to a materialized name, so the APPLY's inner side can
+    /// restrict itself to the outer keys (see <see cref="WriteOuterKeySemiJoin"/>). Must be called
+    /// before the <c>| join</c> line of the APPLY.
+    /// </summary>
+    public void WriteOuterBinding(IRelationalCommandBuilder sql)
+    {
+        _pendingOuterAlias = $"__apply{_outerAliasCount++}";
+        sql.AppendLine();
+        sql.Append($"| as hint.materialized=true {_pendingOuterAlias}");
+    }
+
+    /// <summary>
+    /// Writes <c>| join kind=leftsemi (outer | project key) on ...</c> in the select whose WHERE held the
+    /// correlation predicate. Removing the correlation alone leaves the inner side uncorrelated, so it
+    /// would be sorted/partitioned over every key before the APPLY join discards all but the outer ones.
+    /// </summary>
+    public void WriteOuterKeySemiJoin(IRelationalCommandBuilder sql)
+    {
+        var context = _contextStack.Peek();
+        if (context.OuterAlias == null || context.OuterKeyColumn == null || context.JoinKeyColumn == null)
+            return;
+
+        sql.AppendLine();
+        sql.Append($"| join kind=leftsemi ({context.OuterAlias} | project {context.OuterKeyColumn}) on $left.{context.JoinKeyColumn} == $right.{context.OuterKeyColumn}");
+    }
 
     /// <summary>
     /// Completely handles OUTER APPLY or CROSS APPLY join rendering.
@@ -149,6 +180,8 @@ internal class OuterApplyPartitionHandler
         if (predicate is not SqlBinaryExpression binPred)
             throw new NotSupportedException("Expected binary expression for correlation predicate");
 
+        binPred = OrientCorrelation(binPred, outerApply.Table);
+
         if (binPred.Right is not ColumnExpression partitionCol)
             throw new NotSupportedException("Correlation predicate right side must be a column");
 
@@ -164,7 +197,8 @@ internal class OuterApplyPartitionHandler
                 partitionCol.Name,
                 joinKeyCol,
                 orderings,
-                predicate);
+                predicate,
+                (binPred.Left as ColumnExpression)?.Name);
         }
 
         writeSingleFrom(outerApply);
@@ -172,7 +206,7 @@ internal class OuterApplyPartitionHandler
         PopOuterApplyContext();
 
         sql.Append(") on ");
-        writeJoinPredicate(predicate);
+        writeJoinPredicate(binPred);
     }
 
     private void ProcessCrossApply(
@@ -185,23 +219,70 @@ internal class OuterApplyPartitionHandler
         if (predicate == null)
             throw new NotSupportedException("Could not extract correlation predicate from CROSS APPLY");
 
+        var joinPredicate = predicate is SqlBinaryExpression binPred
+            ? OrientCorrelation(binPred, crossApply.Table)
+            : predicate;
+
         string? joinKeyCol = null;
-        if (predicate is SqlBinaryExpression binPred && binPred.Left is ColumnExpression innerCol)
+        string? outerKeyCol = null;
+        if (joinPredicate is SqlBinaryExpression { Left: ColumnExpression outerCol, Right: ColumnExpression innerCol })
+        {
             joinKeyCol = innerCol.Name;
+            outerKeyCol = outerCol.Name;
+        }
 
         // Push context to track extracted predicate (no partition for CROSS APPLY)
         PushOuterApplyContext(
             partitionColumn: "",
             joinKeyColumn: joinKeyCol,
             partitionOrderings: new(),
-            correlationPredicate: predicate);
+            correlationPredicate: predicate,
+            outerKeyColumn: outerKeyCol);
 
         writeSingleFrom(crossApply);
 
         PopOuterApplyContext();
 
         sql.Append(") on ");
-        writeJoinPredicate(predicate);
+        writeJoinPredicate(joinPredicate);
+    }
+
+    /// <summary>
+    /// Returns the correlation predicate as <c>outer == inner</c>: the side whose column belongs to a
+    /// table inside the APPLY is inner. EF builds navigation correlations outer-first, but a hand-written
+    /// one (<c>Set&lt;Media&gt;().Where(m =&gt; m.FK == p.Key)</c>) keeps the user's operand order.
+    /// </summary>
+    private static SqlBinaryExpression OrientCorrelation(SqlBinaryExpression predicate, TableExpressionBase applyInner)
+    {
+        var innerAliases = new HashSet<string>();
+        CollectAliases(applyInner, innerAliases);
+
+        if (predicate.Left is ColumnExpression l && predicate.Right is ColumnExpression r
+            && innerAliases.Contains(l.TableAlias) == innerAliases.Contains(r.TableAlias))
+            throw new NotSupportedException(
+                $"APPLY correlation '{l.Name} == {r.Name}' does not compare an outer column with an inner column.");
+
+        return predicate.Left is ColumnExpression left && innerAliases.Contains(left.TableAlias)
+               && predicate.Right is ColumnExpression right && !innerAliases.Contains(right.TableAlias)
+            ? predicate.Update(right, left)
+            : predicate;
+    }
+
+    private static void CollectAliases(TableExpressionBase table, HashSet<string> aliases)
+    {
+        if (table.Alias != null)
+            aliases.Add(table.Alias);
+
+        switch (table)
+        {
+            case SelectExpression select:
+                foreach (var t in select.Tables)
+                    CollectAliases(t, aliases);
+                break;
+            case JoinExpressionBase join:
+                CollectAliases(join.Table, aliases);
+                break;
+        }
     }
 
     // ============================================================
@@ -358,15 +439,19 @@ internal class OuterApplyPartitionHandler
         string partitionColumn,
         string? joinKeyColumn,
         List<(SqlExpression, bool)> partitionOrderings,
-        SqlExpression correlationPredicate)
+        SqlExpression correlationPredicate,
+        string? outerKeyColumn)
     {
         _contextStack.Push(new PartitionContext
         {
             Column = partitionColumn,
             JoinKeyColumn = joinKeyColumn,
             Orderings = partitionOrderings,
-            ExtractedCorrelationPredicate = correlationPredicate
+            ExtractedCorrelationPredicate = correlationPredicate,
+            OuterAlias = _pendingOuterAlias,
+            OuterKeyColumn = outerKeyColumn
         });
+        _pendingOuterAlias = null;
     }
 
     private void PopOuterApplyContext()

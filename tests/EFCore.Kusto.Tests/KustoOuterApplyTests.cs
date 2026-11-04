@@ -48,6 +48,210 @@ public class KustoOuterApplyTests
         Assert.Contains("on $left.ListingKey == $right.ResourceRecordKey", kql);
     }
 
+    [Fact]
+    public void Outer_apply_inner_side_is_restricted_to_outer_keys_before_partitioning()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+        var keys = new[] { "a", "b", "c", "d" };
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Where(p => keys.Contains(p.ListingKey))
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        const string semiJoin =
+            "| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey";
+        Assert.Contains("\n)\n| as hint.materialized=true __apply0\n| join kind=leftouter (", kql);
+        Assert.Contains("Media\n" + semiJoin + "\n| order by MediaKey asc", kql);
+        Assert.True(kql.IndexOf(semiJoin) < kql.IndexOf("| partition"));
+    }
+
+    [Fact]
+    public void Each_expand_gets_its_own_outer_binding_and_semi_join()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .Where(m => m.MediaKey != "x")
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey),
+                Rooms = p.Rooms
+                    .OrderBy(r => r.RoomKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(r => r.RoomKey)
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        const string mediaSemiJoin =
+            "| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey";
+        const string roomsSemiJoin =
+            "| join kind=leftsemi (__apply1 | project ListingKey) on $left.ListingKey == $right.ListingKey";
+        Assert.Contains("| as hint.materialized=true __apply0\n", kql);
+        Assert.Contains("| as hint.materialized=true __apply1\n", kql);
+        Assert.Contains("PropertyRooms\n" + roomsSemiJoin + "\n", kql);
+        Assert.True(kql.IndexOf("| where MediaKey") < kql.IndexOf(mediaSemiJoin));
+        Assert.True(kql.IndexOf(mediaSemiJoin) < kql.IndexOf("| partition"));
+    }
+
+    [Fact]
+    public void Nested_expand_binds_the_restricted_inner_side()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => new
+                    {
+                        m.MediaKey,
+                        Tags = m.Tags
+                            .OrderBy(t => t.TagKey)
+                            .Take(implicitPageSize)
+                            .Take(explicitTop)
+                            .Select(t => t.TagKey)
+                    })
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        Assert.Contains(
+            "Media\n| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey\n",
+            kql);
+        Assert.Contains(
+            "MediaTags\n| join kind=leftsemi (__apply1 | project MediaKey) on $left.MediaKey == $right.MediaKey\n",
+            kql);
+        Assert.True(kql.IndexOf("| as hint.materialized=true __apply1") > kql.IndexOf("Media\n| join kind=leftsemi"));
+    }
+
+    [Fact]
+    public void Unbounded_outer_side_is_not_materialized_for_the_semi_join()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        var keys = new[] { "a", "b", "c", "d" };
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Where(p => keys.Contains(p.ListingKey))
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .ToQueryString();
+
+        Assert.StartsWith("Property\n| join kind=leftouter (", kql.Substring(kql.IndexOf("Property")));
+        Assert.DoesNotContain("hint.materialized", kql);
+        Assert.DoesNotContain("leftsemi", kql);
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
+    }
+
+    [Fact]
+    public void Hand_written_inner_first_correlation_is_oriented_by_table()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = ctx.Media
+                    .Where(m => m.ResourceRecordKey == p.ListingKey)
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+                    .ToList()
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
+        Assert.DoesNotContain("partition hint.strategy=native by ListingKey", kql);
+        Assert.Contains(") on $left.ListingKey == $right.ResourceRecordKey", kql);
+        Assert.Contains("on $left.ResourceRecordKey == $right.ListingKey", kql); // the semi-join
+    }
+
+    [Fact]
+    public void Inner_only_column_equality_is_not_taken_as_the_correlation()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var query = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = ctx.Media
+                    .Where(m => m.MediaKey == m.ResourceRecordKey && m.ResourceRecordKey == p.ListingKey)
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+                    .ToList()
+            })
+            .Take(outerTop);
+
+        Assert.Throws<System.NotSupportedException>(() => query.ToQueryString());
+    }
+
     private static KustoApplyJoinTestContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<KustoApplyJoinTestContext>()
@@ -72,11 +276,25 @@ public class KustoOuterApplyTests
                 b.HasKey(p => p.ListingKey);
                 b.HasMany(p => p.Media).WithOne().HasForeignKey(m => m.ResourceRecordKey)
                     .HasPrincipalKey(p => p.ListingKey);
+                b.HasMany(p => p.Rooms).WithOne().HasForeignKey(r => r.ListingKey)
+                    .HasPrincipalKey(p => p.ListingKey);
             });
             mb.Entity<Media>(b =>
             {
                 b.ToTable("Media");
                 b.HasKey(m => m.MediaKey);
+                b.HasMany(m => m.Tags).WithOne().HasForeignKey(t => t.MediaKey)
+                    .HasPrincipalKey(m => m.MediaKey);
+            });
+            mb.Entity<Room>(b =>
+            {
+                b.ToTable("PropertyRooms");
+                b.HasKey(r => r.RoomKey);
+            });
+            mb.Entity<Tag>(b =>
+            {
+                b.ToTable("MediaTags");
+                b.HasKey(t => t.TagKey);
             });
         }
     }
@@ -85,11 +303,25 @@ public class KustoOuterApplyTests
     {
         public string ListingKey { get; set; } = string.Empty;
         public ICollection<Media> Media { get; set; } = new List<Media>();
+        public ICollection<Room> Rooms { get; set; } = new List<Room>();
     }
 
     private sealed class Media
     {
         public string MediaKey { get; set; } = string.Empty;
         public string ResourceRecordKey { get; set; } = string.Empty;
+        public ICollection<Tag> Tags { get; set; } = new List<Tag>();
+    }
+
+    private sealed class Room
+    {
+        public string RoomKey { get; set; } = string.Empty;
+        public string ListingKey { get; set; } = string.Empty;
+    }
+
+    private sealed class Tag
+    {
+        public string TagKey { get; set; } = string.Empty;
+        public string MediaKey { get; set; } = string.Empty;
     }
 }

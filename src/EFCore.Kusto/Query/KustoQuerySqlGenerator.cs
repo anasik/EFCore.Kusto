@@ -379,6 +379,9 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
                 _ => throw new NotSupportedException($"Unsupported join expression: {right.GetType().Name}")
             };
 
+            if (_outerApplyHandler.IsApplyJoin(right) && left is SelectExpression)
+                _outerApplyHandler.WriteOuterBinding(Sql);
+
             Sql.AppendLine();
             Sql.Append($"| join kind={joinKind} (");
 
@@ -446,12 +449,15 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             ? _outerApplyHandler.GetCleanedPredicate(select.Predicate)
             : select.Predicate;
 
-        if (predicateToRender == null)
-            return;
+        if (predicateToRender != null)
+        {
+            Sql.AppendLine();
+            Sql.Append("| where ");
+            Visit(predicateToRender);
+        }
 
-        Sql.AppendLine();
-        Sql.Append("| where ");
-        Visit(predicateToRender);
+        if (!ReferenceEquals(predicateToRender, select.Predicate))
+            _outerApplyHandler.WriteOuterKeySemiJoin(Sql);
     }
 
     protected override Expression VisitSqlUnary(SqlUnaryExpression sqlUnaryExpression)
