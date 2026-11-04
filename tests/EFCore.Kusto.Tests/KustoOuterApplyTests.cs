@@ -252,6 +252,29 @@ public class KustoOuterApplyTests
         Assert.Throws<System.NotSupportedException>(() => query.ToQueryString());
     }
 
+    [Fact]
+    public void Cross_apply_is_an_inner_join_with_per_parent_take()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .SelectMany(
+                p => p.Media.OrderBy(m => m.Order).Take(implicitPageSize).Take(explicitTop),
+                (p, m) => new { p.ListingKey, m.MediaKey })
+            .ToQueryString();
+
+        Assert.Contains("| join kind=inner (", kql);
+        Assert.DoesNotContain("leftouter", kql);
+        Assert.Contains("on $left.ListingKey == $right.ResourceRecordKey", kql);
+    }
+
     private static KustoApplyJoinTestContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<KustoApplyJoinTestContext>()
@@ -310,6 +333,7 @@ public class KustoOuterApplyTests
     {
         public string MediaKey { get; set; } = string.Empty;
         public string ResourceRecordKey { get; set; } = string.Empty;
+        public int Order { get; set; }
         public ICollection<Tag> Tags { get; set; } = new List<Tag>();
     }
 

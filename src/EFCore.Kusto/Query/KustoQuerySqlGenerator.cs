@@ -372,6 +372,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             {
                 InnerJoinExpression => "inner",
                 LeftJoinExpression => "leftouter",
+                CrossApplyExpression => "inner",
 #if NET10_0_OR_GREATER
                 RightJoinExpression => "rightouter",
 #endif
