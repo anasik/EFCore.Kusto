@@ -89,13 +89,9 @@ internal class OuterApplyPartitionHandler
         Action<TableExpressionBase> writeSingleFrom,
         Action<SqlExpression> writeJoinPredicate)
     {
-        if (right is OuterApplyExpression outerApply)
+        if (right is OuterApplyExpression or CrossApplyExpression)
         {
-            ProcessOuterApply(outerApply, sql, writeSingleFrom, writeJoinPredicate);
-        }
-        else if (right is CrossApplyExpression crossApply)
-        {
-            ProcessCrossApply(crossApply, sql, writeSingleFrom, writeJoinPredicate);
+            ProcessApply((JoinExpressionBase)right, sql, writeSingleFrom, writeJoinPredicate);
         }
         else
         {
@@ -167,20 +163,20 @@ internal class OuterApplyPartitionHandler
     // PRIVATE: OUTER APPLY / CROSS APPLY PROCESSING
     // ============================================================
 
-    private void ProcessOuterApply(
-        OuterApplyExpression outerApply,
+    private void ProcessApply(
+        JoinExpressionBase apply,
         IRelationalCommandBuilder sql,
         Action<TableExpressionBase> writeSingleFrom,
         Action<SqlExpression> writeJoinPredicate)
     {
-        var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(outerApply.Table);
+        var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(apply.Table);
         if (predicate == null)
-            throw new NotSupportedException("Could not extract correlation predicate from OUTER APPLY");
+            throw new NotSupportedException("Could not extract correlation predicate from APPLY");
 
         if (predicate is not SqlBinaryExpression binPred)
             throw new NotSupportedException("Expected binary expression for correlation predicate");
 
-        binPred = OrientCorrelation(binPred, outerApply.Table);
+        binPred = OrientCorrelation(binPred, apply.Table);
 
         if (binPred.Right is not ColumnExpression partitionCol)
             throw new NotSupportedException("Correlation predicate right side must be a column");
@@ -201,49 +197,12 @@ internal class OuterApplyPartitionHandler
                 (binPred.Left as ColumnExpression)?.Name);
         }
 
-        writeSingleFrom(outerApply);
+        writeSingleFrom(apply);
 
         PopOuterApplyContext();
 
         sql.Append(") on ");
         writeJoinPredicate(binPred);
-    }
-
-    private void ProcessCrossApply(
-        CrossApplyExpression crossApply,
-        IRelationalCommandBuilder sql,
-        Action<TableExpressionBase> writeSingleFrom,
-        Action<SqlExpression> writeJoinPredicate)
-    {
-        var (predicate, selectWithCorrelation) = ExtractCorrelationPredicateAndSelect(crossApply.Table);
-        if (predicate == null)
-            throw new NotSupportedException("Could not extract correlation predicate from CROSS APPLY");
-
-        var joinPredicate = predicate is SqlBinaryExpression binPred
-            ? OrientCorrelation(binPred, crossApply.Table)
-            : predicate;
-
-        string? joinKeyCol = null;
-        string? outerKeyCol = null;
-        if (joinPredicate is SqlBinaryExpression { Left: ColumnExpression outerCol, Right: ColumnExpression innerCol })
-        {
-            joinKeyCol = innerCol.Name;
-            outerKeyCol = outerCol.Name;
-        }
-
-        PushOuterApplyContext(
-            partitionColumn: joinKeyCol ?? "",
-            joinKeyColumn: joinKeyCol,
-            partitionOrderings: selectWithCorrelation!.Orderings.Select(o => (o.Expression, o.IsAscending)).ToList(),
-            correlationPredicate: predicate,
-            outerKeyColumn: outerKeyCol);
-
-        writeSingleFrom(crossApply);
-
-        PopOuterApplyContext();
-
-        sql.Append(") on ");
-        writeJoinPredicate(joinPredicate);
     }
 
     /// <summary>
