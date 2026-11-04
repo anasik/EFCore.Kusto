@@ -79,6 +79,7 @@ public class KustoOuterApplyTests
         Assert.Contains("\n)\n| as hint.materialized=true __apply0\n| join kind=leftouter (", kql);
         Assert.Contains("Media\n" + semiJoin + "\n| order by MediaKey asc", kql);
         Assert.True(kql.IndexOf(semiJoin) < kql.IndexOf("| partition"));
+        Assert.DoesNotMatch(@"\| project [^\n]*\n\| partition", kql);
     }
 
     [Fact]

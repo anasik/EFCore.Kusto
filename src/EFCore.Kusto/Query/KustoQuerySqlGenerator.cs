@@ -51,9 +51,12 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             if (select.GroupBy.Count > 0 || select.Projection.Any(p => ContainsAggregate(p.Expression)))
                 WriteSummarizeFromGroupBy(select);
             WriteOrderBy(select);
+            if (_outerApplyHandler.IsActive)
+                WriteTake(select);
             WriteProjection(select);
             WriteSkip(select);
-            WriteTake(select);
+            if (!_outerApplyHandler.IsActive)
+                WriteTake(select);
         }
 
         if (isNested)
