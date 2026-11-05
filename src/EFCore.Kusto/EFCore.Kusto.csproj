@@ -8,7 +8,7 @@
 
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>EFCore.Kusto</PackageId>
-        <Version>0.3.4</Version>
+        <Version>0.3.5</Version>
         <Authors>Anas Ismail Khan</Authors>
         <Description>Entity Framework Core provider for Azure Data Explorer (Kusto) with LINQ-to-KQL translation and ASP.NET Core OData compatibility.</Description>
         <PackageTags>efcore;ef;entityframework;kusto;kql;azure;adx;odata;linq</PackageTags>
@@ -21,6 +21,12 @@
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <PackageReleaseNotes>
+            Version 0.3.5:
+            - Fixed a collection $expand with a per-parent $orderby/$top (OUTER APPLY) on a paged parent sorting and partitioning the entire child table before joining it to the page. The child side is now restricted to the page's parent keys before partitioning.
+            - Fixed CROSS APPLY (SelectMany over a correlated subquery) being emitted as a left outer join, which returned parents with no matching children. It is now an inner join.
+            - Fixed CROSS APPLY dropping the subquery's Take, which returned every child per parent. It now takes the first N per parent, like OUTER APPLY.
+            - Fixed APPLY subqueries projecting their columns before partitioning, which produced invalid KQL when the per-parent top N was ordered by a column outside the projection.
+
             Version 0.3.4:
             - Fixed inserted DateOnly and TimeOnly values being stored as null: the insert payload sent them as JSON-encoded strings with embedded quotes, which Kusto can't parse. They are now sent as plain date and time strings.
             - Fixed DateOnly and TimeOnly KQL literals being formatted with the current culture, which wrote or matched the wrong date under non-Gregorian cultures such as th-TH or ar-SA. They are now formatted with the invariant culture.

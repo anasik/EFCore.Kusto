@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5]
+### Fixed
+- A collection `$expand` with a per-parent `$orderby`/`$top` (OUTER APPLY) on a paged parent sorted and partitioned the entire child table before joining it to the page, so a page of 4 parents could take ~90 s. The child side is now restricted to the page's parent keys (`join kind=leftsemi` against the materialized page) before partitioning.
+- CROSS APPLY (`SelectMany` over a correlated subquery) was emitted as `join kind=leftouter`, so parents with no matching children were returned with an empty child row. It is now `join kind=inner`.
+- CROSS APPLY dropped the subquery's `Take`, returning every child per parent. It now takes the first N per parent with `partition ... (top N by ...)`, like OUTER APPLY.
+- APPLY subqueries projected their columns before partitioning, so a per-parent `top N` ordered by a column outside the projection produced invalid KQL. The partition is now written before the projection.
+
 ## [0.3.4]
 ### Fixed
 - Inserted `DateOnly` and `TimeOnly` values were stored as null, because the insert payload sent them as JSON-encoded strings with embedded quotes (`"\"2026-01-01\""`), which Kusto can't parse. They are now sent as plain `2026-01-01` and `14:00:00.0000000` strings.
