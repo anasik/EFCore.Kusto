@@ -279,6 +279,35 @@ public class KustoOuterApplyTests
         Assert.Matches(@"\| partition [^\n]*by Order asc\)\n\| project MediaKey = MediaKey, ResourceRecordKey\n", kql);
     }
 
+    [Fact]
+    public void Row_number_restarts_per_partition_and_its_filter_is_kept()
+    {
+        using var ctx = CreateContext();
+
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media.OrderBy(m => m.MediaKey).Select(m => new { m.MediaKey, m.Order }).Take(2)
+                    .Select(m => new { m.MediaKey, Doubled = m.Order * 2 })
+            })
+            .ToQueryString();
+
+        Assert.Contains("| order by ResourceRecordKey asc, MediaKey asc\n", kql);
+        Assert.Contains(
+            "row = row_number(1, isnull(prev(ResourceRecordKey)) != isnull(ResourceRecordKey) or " +
+            "(isnotnull(ResourceRecordKey) and prev(ResourceRecordKey) != ResourceRecordKey))",
+            kql);
+        Assert.Contains("| where row <= 2", kql);
+        Assert.DoesNotContain("row_number(0)", kql);
+        Assert.DoesNotContain("serialize", kql);
+    }
+
     private static KustoApplyJoinTestContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<KustoApplyJoinTestContext>()

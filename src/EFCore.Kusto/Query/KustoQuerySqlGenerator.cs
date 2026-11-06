@@ -402,6 +402,72 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         }
     }
 
+    private void WriteOrderings(IReadOnlyList<OrderingExpression> orderings)
+    {
+        for (var i = 0; i < orderings.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(", ");
+            Visit(orderings[i].Expression);
+            Sql.Append(orderings[i].IsAscending ? " asc" : " desc");
+        }
+    }
+
+    /// <summary>
+    /// <c>| order by</c> for a <c>ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)</c>: partitions first, so each
+    /// group is contiguous and <see cref="WriteRowNumber"/> can restart at group boundaries.
+    /// </summary>
+    private void WriteRowNumberOrder(RowNumberExpression rowNumber)
+    {
+        if (rowNumber.Partitions.Count == 0 && rowNumber.Orderings.Count == 0)
+        {
+            Sql.Append("| serialize ");
+            return;
+        }
+
+        Sql.Append("| order by ");
+        for (var i = 0; i < rowNumber.Partitions.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(", ");
+            Visit(rowNumber.Partitions[i]);
+            Sql.Append(" asc");
+        }
+        if (rowNumber.Partitions.Count > 0 && rowNumber.Orderings.Count > 0)
+            Sql.Append(", ");
+        WriteOrderings(rowNumber.Orderings);
+    }
+
+    private void WriteRowNumber(RowNumberExpression rowNumber)
+    {
+        if (rowNumber.Partitions.Count == 0)
+        {
+            Sql.Append("row_number()");
+            return;
+        }
+
+        // Restart when any partition value differs from the previous row's, nulls included.
+        Sql.Append("row_number(1, ");
+        for (var i = 0; i < rowNumber.Partitions.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(" or ");
+            var p = rowNumber.Partitions[i];
+            Sql.Append("isnull(prev(");
+            Visit(p);
+            Sql.Append(")) != isnull(");
+            Visit(p);
+            Sql.Append(") or (isnotnull(");
+            Visit(p);
+            Sql.Append(") and prev(");
+            Visit(p);
+            Sql.Append(") != ");
+            Visit(p);
+            Sql.Append(")");
+        }
+        Sql.Append(")");
+    }
+
     private void WriteJoinPredicate(SqlExpression predicate)
     {
         if (predicate is SqlBinaryExpression b && b.OperatorType == ExpressionType.Equal)
@@ -440,14 +506,6 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
     {
         if (select.Predicate == null)
             return;
-
-        var p = select.Predicate as SqlBinaryExpression;
-        if (p != null)
-        {
-            var l = p.Left as ColumnExpression;
-            if (l?.Name == "row" && p.OperatorType == ExpressionType.LessThanOrEqual)
-                return;
-        }
 
         var predicateToRender = _outerApplyHandler.IsActive
             ? _outerApplyHandler.GetCleanedPredicate(select.Predicate)
@@ -626,7 +684,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         {
             rr = true;
             Sql.AppendLine();
-            Sql.Append("| serialize ");
+            WriteRowNumberOrder(r);
         }
 
         Sql.AppendLine();
@@ -652,8 +710,8 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             if (aliases[i] != null)
                 Sql.Append(aliases[i] + " = ");
 
-            if (proj.Expression is RowNumberExpression)
-                Sql.Append("row_number(0)");
+            if (proj.Expression is RowNumberExpression rowNumber)
+                WriteRowNumber(rowNumber);
             else
                 Visit(proj.Expression);
             if (proj.Expression is ExistsExpression)
