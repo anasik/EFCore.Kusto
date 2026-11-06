@@ -14,6 +14,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
 {
     private int _selectDepth;
     private readonly OuterApplyPartitionHandler _outerApplyHandler = new();
+    private int _takeAliasCount;
     private static readonly Dictionary<string, string> _sqlToKqlAggregate = new(StringComparer.Ordinal)
     {
         ["MAX"] = "max",
@@ -342,7 +343,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             case SelectExpression nested when !_outerApplyHandler.IsActive && MatchTopNPerGroup(nested) is { } topN:
                 Sql.Append("(");
                 Sql.AppendLine();
-                WriteTopNPerGroup(nested, topN);
+                WriteTopNPerGroup(nested, topN, null, null);
                 Sql.AppendLine();
                 Sql.Append(")");
                 break;
@@ -374,6 +375,30 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         var left = select.Tables[0];
         WriteSingleFrom(left);
 
+        var restrictable = select.Tables
+            .Select(t => !_outerApplyHandler.IsActive && t is PredicateJoinExpressionBase join ? MatchRestrictableJoin(join, left) : null)
+            .ToList();
+        var anyRestrictable = restrictable.Any(t => t != null);
+        var outerAlias = anyRestrictable && left is SelectExpression ? $"__take{_takeAliasCount++}" : null;
+        if (outerAlias != null)
+        {
+            Sql.AppendLine();
+            Sql.Append($"| as hint.materialized=true {outerAlias}");
+        }
+        var parentFilter = anyRestrictable && left is TableExpression && select.Predicate != null
+                           && ReferencesOnly(select.Predicate, left.Alias!)
+            ? select.Predicate
+            : null;
+        Action? writeParentKeys = outerAlias != null
+            ? () => Sql.Append(outerAlias)
+            : parentFilter != null
+                ? () =>
+                {
+                    Sql.Append(((TableExpression)left).Table.Name + " | where ");
+                    Visit(parentFilter);
+                }
+                : null;
+
         // assume all additional tables are joined in order (EF patterns)
         for (int i = 1; i < select.Tables.Count; i++)
         {
@@ -399,7 +424,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
 
             if (right is PredicateJoinExpressionBase join)
             {
-                WriteSingleFrom(right);
+                if (restrictable[i] is { } r && writeParentKeys != null)
+                {
+                    Sql.AppendLine();
+                    WriteTopNPerGroup((SelectExpression)join.Table, r.topN, writeParentKeys, r.outerKey);
+                    Sql.AppendLine();
+                }
+                else
+                    WriteSingleFrom(right);
                 Sql.Append(") on ");
                 WriteJoinPredicate(join.JoinPredicate);
             }
@@ -433,12 +465,45 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
     }
 
     /// <summary>
-    /// Writes a first-N-per-group as <c>partition by k (order by ... | take n)</c>.
+    /// Matches a join whose right side is a first-N-per-group keyed by the join column, so the right side
+    /// can be restricted to the left side's keys before grouping: rows with other keys can't match the join.
     /// </summary>
-    private void WriteTopNPerGroup(SelectExpression filtered, TopNPerGroup topN)
+    private static (TopNPerGroup topN, string outerKey)? MatchRestrictableJoin(PredicateJoinExpressionBase join, TableExpressionBase left)
     {
+        if (join is not (LeftJoinExpression or InnerJoinExpression)
+            || join.JoinPredicate is not SqlBinaryExpression { OperatorType: ExpressionType.Equal, Left: ColumnExpression outer, Right: ColumnExpression inner }
+            || outer.TableAlias != left.Alias || inner.TableAlias != join.Table.Alias
+            || join.Table is not SelectExpression filtered
+            || MatchTopNPerGroup(filtered) is not { } topN
+            || topN.Partition != inner.Name)
+            return null;
+
+        return (topN, outer.Name);
+    }
+
+    /// <summary>
+    /// Writes a first-N-per-group as <c>partition by k (order by ... | take n)</c>. When
+    /// <paramref name="writeParentKeys"/> is given, the rows are first restricted to those keys, with the
+    /// keys on the left of the join because Kusto expects the smaller side there.
+    /// </summary>
+    private void WriteTopNPerGroup(SelectExpression filtered, TopNPerGroup topN, Action? writeParentKeys, string? outerKey)
+    {
+        if (writeParentKeys != null)
+        {
+            Sql.Append("(");
+            writeParentKeys();
+            Sql.Append($" | project {outerKey})");
+            Sql.AppendLine();
+            Sql.Append("| join kind=rightsemi (");
+            Sql.AppendLine();
+        }
         WriteFrom(topN.Numbered);
         WriteWhere(topN.Numbered);
+        if (writeParentKeys != null)
+        {
+            Sql.AppendLine();
+            Sql.Append($") on $left.{outerKey} == $right.{topN.Partition}");
+        }
         Sql.AppendLine();
         Sql.Append($"| partition hint.strategy=native by {topN.Partition} (order by ");
         WriteOrderings(topN.RowNumber.Orderings);
@@ -522,6 +587,13 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             Sql.Append(")");
         }
         Sql.Append(")");
+    }
+
+    private static bool ReferencesOnly(SqlExpression expression, string tableAlias)
+    {
+        var columns = new ColumnCollector();
+        columns.Visit(expression);
+        return !columns.HasSubquery && columns.Columns.All(c => c.TableAlias == tableAlias);
     }
 
     /// <summary>True when the only columns <paramref name="expression"/> reads are <c>tableAlias.column</c> (none at all also counts).</summary>

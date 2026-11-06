@@ -280,6 +280,31 @@ public class KustoOuterApplyTests
     }
 
     [Fact]
+    public void Single_take_expand_takes_per_parent_over_the_paged_parents_children()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Take(pageSize) })
+            .ToQueryString();
+
+        Assert.Contains(
+            "\n)\n| as hint.materialized=true __take0\n| join kind=leftouter (\n" +
+            "(__take0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n) on $left.ListingKey == $right.ResourceRecordKey\n" +
+            "| partition hint.strategy=native by ResourceRecordKey (order by MediaKey asc | take ",
+            kql);
+        Assert.Contains(") on $left.ListingKey == $right.ResourceRecordKey", kql);
+        Assert.DoesNotContain("serialize", kql);
+        Assert.DoesNotContain("row_number", kql);
+    }
+
+    [Fact]
     public void Single_take_expand_orders_by_every_ordering_inside_the_partition()
     {
         using var ctx = CreateContext();
@@ -298,8 +323,36 @@ public class KustoOuterApplyTests
             })
             .ToQueryString();
 
+        Assert.Contains("| join kind=rightsemi (\nMedia\n| where Order < 10\n) on ", kql);
         Assert.Contains("(order by Order desc, MediaKey asc | take ", kql);
         Assert.DoesNotContain("(top ", kql);
+    }
+
+    [Fact]
+    public void Single_take_expands_share_one_binding_of_the_paged_parent()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media.OrderBy(m => m.MediaKey).Take(pageSize),
+                Rooms = p.Rooms.OrderBy(r => r.RoomKey).Take(pageSize)
+            })
+            .ToQueryString();
+
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(kql, "hint.materialized"));
+        Assert.Contains(
+            "(__take0 | project ListingKey)\n| join kind=rightsemi (\nPropertyRooms\n) on $left.ListingKey == $right.ListingKey\n" +
+            "| partition hint.strategy=native by ListingKey (order by RoomKey asc | take ",
+            kql);
     }
 
     [Fact]
@@ -323,6 +376,44 @@ public class KustoOuterApplyTests
     }
 
     [Fact]
+    public void Single_take_expand_on_filtered_parent_table_restricts_to_the_filtered_keys()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        var keys = new[] { "a", "b" };
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Where(p => keys.Contains(p.ListingKey))
+            .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Take(pageSize) })
+            .ToQueryString();
+
+        Assert.Matches(
+            @"\| join kind=leftouter \(\n\(Property \| where ListingKey in [^\n]* \| project ListingKey\)\n" +
+            @"\| join kind=rightsemi \(\nMedia\n\) on \$left\.ListingKey == \$right\.ResourceRecordKey\n\| partition ",
+            kql);
+        Assert.DoesNotContain("hint.materialized", kql);
+    }
+
+    [Fact]
+    public void Single_take_expand_does_not_restrict_by_a_filter_that_reads_child_tables()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Where(p => p.ListingKey == "a" || p.Media.Any(m => m.Order == 99))
+            .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Take(pageSize) })
+            .ToQueryString();
+
+        Assert.Contains("| join kind=leftouter ((\nMedia\n| partition ", kql);
+        Assert.DoesNotContain("semi", kql);
+    }
+
+    [Fact]
     public void Skip_take_expand_numbers_rows_inside_the_partition()
     {
         using var ctx = CreateContext();
@@ -337,11 +428,33 @@ public class KustoOuterApplyTests
             .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Skip(1).Take(pageSize) })
             .ToQueryString();
 
+        Assert.Contains("| join kind=rightsemi (\nMedia\n) on $left.ListingKey == $right.ResourceRecordKey\n", kql);
         Assert.Matches(
             @"\| partition hint\.strategy=native by ResourceRecordKey \(order by MediaKey asc \| extend row = row_number\(\) " +
             @"\| where \w+ < row and row <= \([^)]*\) \| project-away row\)",
             kql);
         Assert.DoesNotContain("serialize", kql);
+    }
+
+    [Fact]
+    public void Select_many_take_restricts_the_inner_join_to_the_parent_keys()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .SelectMany(p => p.Media.OrderBy(m => m.MediaKey).Take(pageSize), (p, m) => new { p.ListingKey, m.MediaKey })
+            .ToQueryString();
+
+        Assert.Contains(
+            "| as hint.materialized=true __take0\n| join kind=inner (\n(__take0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n) on ",
+            kql);
+        Assert.Contains("(order by MediaKey asc | take ", kql);
     }
 
     [Fact]
