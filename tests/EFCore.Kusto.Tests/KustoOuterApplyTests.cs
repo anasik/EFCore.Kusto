@@ -189,8 +189,62 @@ public class KustoOuterApplyTests
 
         Assert.StartsWith("Property\n| join kind=leftouter (", kql.Substring(kql.IndexOf("Property")));
         Assert.DoesNotContain("hint.materialized", kql);
-        Assert.DoesNotContain("leftsemi", kql);
+        Assert.Matches(
+            @"Media\n\| join kind=leftsemi \(Property \| where ListingKey in \([^)]*\) \| project ListingKey\) on ",
+            kql);
         Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
+    }
+
+    [Fact]
+    public void Apply_on_whole_parent_table_is_not_restricted()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .ToQueryString();
+
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
+        Assert.DoesNotContain("semi", kql);
+        Assert.DoesNotContain("hint.materialized", kql);
+    }
+
+    [Fact]
+    public void Apply_is_not_restricted_by_a_parent_filter_that_reads_child_tables()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Where(p => p.ListingKey == "a" || p.Media.Any(m => m.Order == 99))
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .ToQueryString();
+
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
+        Assert.DoesNotContain("semi", kql);
     }
 
     [Fact]

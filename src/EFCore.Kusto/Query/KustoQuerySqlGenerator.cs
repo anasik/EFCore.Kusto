@@ -418,6 +418,13 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
 
             if (_outerApplyHandler.IsApplyJoin(right) && left is SelectExpression)
                 _outerApplyHandler.WriteOuterBinding(Sql);
+            else if (_outerApplyHandler.IsApplyJoin(right) && left is TableExpression table && select.Predicate != null
+                     && ReferencesOnly(select.Predicate, left.Alias!))
+                _outerApplyHandler.SetOuterKeys(() =>
+                {
+                    Sql.Append(table.Table.Name + " | where ");
+                    Visit(select.Predicate);
+                });
 
             Sql.AppendLine();
             Sql.Append($"| join kind={joinKind} (");

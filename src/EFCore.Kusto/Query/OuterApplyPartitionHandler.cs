@@ -21,13 +21,13 @@ internal class OuterApplyPartitionHandler
         public string? JoinKeyColumn { get; set; }  
         public List<(SqlExpression expr, bool isAscending)> Orderings { get; set; } = new();
         public SqlExpression? ExtractedCorrelationPredicate { get; set; }
-        public string? OuterAlias { get; set; }
+        public Action? WriteOuterKeys { get; set; }
         public string? OuterKeyColumn { get; set; }
     }
 
     private readonly Stack<PartitionContext> _contextStack = new();
     private int _outerAliasCount;
-    private string? _pendingOuterAlias;
+    private Action? _pendingOuterKeys;
 
     /// <summary>
     /// Gets whether we're currently inside an OUTER/CROSS APPLY context.
@@ -59,10 +59,17 @@ internal class OuterApplyPartitionHandler
     /// </summary>
     public void WriteOuterBinding(IRelationalCommandBuilder sql)
     {
-        _pendingOuterAlias = $"__apply{_outerAliasCount++}";
+        var alias = $"__apply{_outerAliasCount++}";
         sql.AppendLine();
-        sql.Append($"| as hint.materialized=true {_pendingOuterAlias}");
+        sql.Append($"| as hint.materialized=true {alias}");
+        _pendingOuterKeys = () => sql.Append(alias);
     }
+
+    /// <summary>
+    /// Sets how the next APPLY's inner side gets the outer rows to restrict itself to, when they can be
+    /// written again instead of bound (e.g. the filtered outer table).
+    /// </summary>
+    public void SetOuterKeys(Action writeOuterKeys) => _pendingOuterKeys = writeOuterKeys;
 
     /// <summary>
     /// Writes <c>| join kind=leftsemi (outer | project key) on ...</c> in the select whose WHERE held the
@@ -72,11 +79,13 @@ internal class OuterApplyPartitionHandler
     public void WriteOuterKeySemiJoin(IRelationalCommandBuilder sql)
     {
         var context = _contextStack.Peek();
-        if (context.OuterAlias == null || context.OuterKeyColumn == null || context.JoinKeyColumn == null)
+        if (context.WriteOuterKeys == null || context.OuterKeyColumn == null || context.JoinKeyColumn == null)
             return;
 
         sql.AppendLine();
-        sql.Append($"| join kind=leftsemi ({context.OuterAlias} | project {context.OuterKeyColumn}) on $left.{context.JoinKeyColumn} == $right.{context.OuterKeyColumn}");
+        sql.Append("| join kind=leftsemi (");
+        context.WriteOuterKeys();
+        sql.Append($" | project {context.OuterKeyColumn}) on $left.{context.JoinKeyColumn} == $right.{context.OuterKeyColumn}");
     }
 
     /// <summary>
@@ -376,10 +385,10 @@ internal class OuterApplyPartitionHandler
             JoinKeyColumn = joinKeyColumn,
             Orderings = partitionOrderings,
             ExtractedCorrelationPredicate = correlationPredicate,
-            OuterAlias = _pendingOuterAlias,
+            WriteOuterKeys = _pendingOuterKeys,
             OuterKeyColumn = outerKeyColumn
         });
-        _pendingOuterAlias = null;
+        _pendingOuterKeys = null;
     }
 
     private void PopOuterApplyContext()
