@@ -339,6 +339,14 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
                 Sql.Append(")");
                 break;
 
+            case SelectExpression nested when !_outerApplyHandler.IsActive && MatchTopNPerGroup(nested) is { } topN:
+                Sql.Append("(");
+                Sql.AppendLine();
+                WriteTopNPerGroup(nested, topN);
+                Sql.AppendLine();
+                Sql.Append(")");
+                break;
+
             case SelectExpression nested:
                 VisitSelect(nested);
                 break;
@@ -400,6 +408,54 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
                 _outerApplyHandler.ProcessApplyJoin(right, Sql, WriteSingleFrom, WriteJoinPredicate);
             }
         }
+    }
+
+    private readonly record struct TopNPerGroup(
+        SelectExpression Numbered, RowNumberExpression RowNumber, string Partition, string RowAlias, SqlExpression RowFilter);
+
+    /// <summary>
+    /// Matches a per-group window filtered on the row number alone, e.g. first N or Skip/Take per group:
+    /// <c>SELECT cols FROM (SELECT cols, ROW_NUMBER() OVER (PARTITION BY k ORDER BY ...) AS row ...) WHERE &lt;row filter&gt;</c>,
+    /// which can be computed inside a partition instead of numbering every row of the table.
+    /// </summary>
+    private static TopNPerGroup? MatchTopNPerGroup(SelectExpression filtered)
+    {
+        if (filtered is not { Tables.Count: 1, Orderings.Count: 0, Limit: null, Offset: null, GroupBy.Count: 0, Predicate: not null }
+            || filtered.Tables[0] is not SelectExpression { Orderings.Count: 0, Limit: null, Offset: null, GroupBy.Count: 0 } numbered
+            || numbered.Projection.LastOrDefault() is not { Expression: RowNumberExpression { Orderings.Count: > 0, Partitions.Count: 1 } rowNumber } rowProjection
+            || rowNumber.Partitions[0] is not ColumnExpression partition
+            || !ReferencesOnlyColumn(filtered.Predicate, numbered.Alias!, rowProjection.Alias)
+            || filtered.Projection.Any(p => p.Expression is not ColumnExpression)
+            || numbered.Projection.SkipLast(1).Any(p => p.Expression is not ColumnExpression c || c.Name != p.Alias))
+            return null;
+
+        return new TopNPerGroup(numbered, rowNumber, partition.Name, rowProjection.Alias, filtered.Predicate);
+    }
+
+    /// <summary>
+    /// Writes a first-N-per-group as <c>partition by k (order by ... | take n)</c>.
+    /// </summary>
+    private void WriteTopNPerGroup(SelectExpression filtered, TopNPerGroup topN)
+    {
+        WriteFrom(topN.Numbered);
+        WriteWhere(topN.Numbered);
+        Sql.AppendLine();
+        Sql.Append($"| partition hint.strategy=native by {topN.Partition} (order by ");
+        WriteOrderings(topN.RowNumber.Orderings);
+        if (topN.RowFilter is SqlBinaryExpression { OperatorType: ExpressionType.LessThanOrEqual, Left: ColumnExpression, Right: var limit }
+            && ReadsNoColumns(limit))
+        {
+            Sql.Append(" | take ");
+            Visit(limit);
+        }
+        else
+        {
+            Sql.Append($" | extend {topN.RowAlias} = row_number() | where ");
+            Visit(topN.RowFilter);
+            Sql.Append($" | project-away {topN.RowAlias}");
+        }
+        Sql.Append(")");
+        WriteProjection(filtered);
     }
 
     private void WriteOrderings(IReadOnlyList<OrderingExpression> orderings)
@@ -466,6 +522,44 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             Sql.Append(")");
         }
         Sql.Append(")");
+    }
+
+    /// <summary>True when the only columns <paramref name="expression"/> reads are <c>tableAlias.column</c> (none at all also counts).</summary>
+    private static bool ReferencesOnlyColumn(SqlExpression expression, string tableAlias, string column)
+    {
+        var columns = new ColumnCollector();
+        columns.Visit(expression);
+        return !columns.HasSubquery && columns.Columns.All(c => c.TableAlias == tableAlias && c.Name == column);
+    }
+
+    private static bool ReadsNoColumns(SqlExpression expression)
+    {
+        var columns = new ColumnCollector();
+        columns.Visit(expression);
+        return !columns.HasSubquery && columns.Columns.Count == 0;
+    }
+
+    private sealed class ColumnCollector : ExpressionVisitor
+    {
+        public List<ColumnExpression> Columns { get; } = new();
+        public bool HasSubquery { get; private set; }
+
+        protected override Expression VisitExtension(Expression node)
+        {
+            if (node is ColumnExpression column)
+            {
+                Columns.Add(column);
+                return node;
+            }
+
+            if (node is SelectExpression)
+            {
+                HasSubquery = true;
+                return node;
+            }
+
+            return base.VisitExtension(node);
+        }
     }
 
     private void WriteJoinPredicate(SqlExpression predicate)

@@ -280,6 +280,71 @@ public class KustoOuterApplyTests
     }
 
     [Fact]
+    public void Single_take_expand_orders_by_every_ordering_inside_the_partition()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media.Where(m => m.Order < 10).OrderByDescending(m => m.Order).ThenBy(m => m.MediaKey).Take(pageSize)
+            })
+            .ToQueryString();
+
+        Assert.Contains("(order by Order desc, MediaKey asc | take ", kql);
+        Assert.DoesNotContain("(top ", kql);
+    }
+
+    [Fact]
+    public void Single_take_expand_on_whole_parent_table_takes_per_parent_without_restriction()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Take(pageSize) })
+            .ToQueryString();
+
+        Assert.Contains(
+            "| join kind=leftouter ((\nMedia\n| partition hint.strategy=native by ResourceRecordKey (order by MediaKey asc | take ",
+            kql);
+        Assert.DoesNotContain("serialize", kql);
+        Assert.DoesNotContain("hint.materialized", kql);
+        Assert.DoesNotContain("semi", kql);
+    }
+
+    [Fact]
+    public void Skip_take_expand_numbers_rows_inside_the_partition()
+    {
+        using var ctx = CreateContext();
+
+        int pageSize = 2;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Take(outerTop)
+            .Select(p => new { p.ListingKey, Media = p.Media.OrderBy(m => m.MediaKey).Skip(1).Take(pageSize) })
+            .ToQueryString();
+
+        Assert.Matches(
+            @"\| partition hint\.strategy=native by ResourceRecordKey \(order by MediaKey asc \| extend row = row_number\(\) " +
+            @"\| where \w+ < row and row <= \([^)]*\) \| project-away row\)",
+            kql);
+        Assert.DoesNotContain("serialize", kql);
+    }
+
+    [Fact]
     public void Row_number_restarts_per_partition_and_its_filter_is_kept()
     {
         using var ctx = CreateContext();
