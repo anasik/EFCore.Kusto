@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.6]
+### Fixed
+- Per-group limits (a `Take` inside a grouped or per-parent subquery) numbered rows across the whole result and could drop their `row <= n` filter. Rows are now numbered within each group and the filter is kept.
+- APPLY partitions used `top N by` with several sort columns, which Kusto rejects. They now sort by every ordering, then `take N`.
+- The APPLY restriction added in 0.3.5 joined with `kind=leftsemi`, holding the whole child table in memory, which could fail with `E_LOW_MEMORY_CONDITION`. The parent's keys are now on the left (`join kind=rightsemi`), so memory is bounded by the parent rows.
+
+### Changed
+- Per-group limits are computed inside a `partition hint.strategy=native` instead of numbering every row, and are restricted to the parent's keys before partitioning.
+- APPLY over a filtered parent table (not only a paged one) is restricted to that parent's keys. The 0.3.5 entry's "page's parent keys" applies to any parent subquery, paged or not.
+
 ## [0.3.5]
 ### Fixed
 - A collection `$expand` with a per-parent `$orderby`/`$top` (OUTER APPLY) on a paged parent sorted and partitioned the entire child table before joining it to the page, so a page of 4 parents could take ~90 s. The child side is now restricted to the page's parent keys (`join kind=leftsemi` against the materialized page) before partitioning.
