@@ -327,10 +327,66 @@ public class KustoOuterApplyTests
 
         Assert.Contains("| join kind=inner (", kql);
         Assert.DoesNotContain("leftouter", kql);
-        Assert.Contains("partition hint.strategy=native by ResourceRecordKey (top", kql);
+        Assert.Contains("partition hint.strategy=native by ResourceRecordKey (order by Order asc | take ", kql);
         Assert.Contains("on $left.ListingKey == $right.ResourceRecordKey", kql);
         Assert.DoesNotMatch(@"\| project MediaKey = MediaKey, ResourceRecordKey\n\| partition", kql);
-        Assert.Matches(@"\| partition [^\n]*by Order asc\)\n\| project MediaKey = MediaKey, ResourceRecordKey\n", kql);
+        Assert.Matches(@"\| partition [^\n]*by Order asc \| take \w+\)\n\| project MediaKey = MediaKey, ResourceRecordKey\n", kql);
+    }
+
+    [Fact]
+    public void Apply_partition_sorts_by_every_ordering_then_takes()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .OrderByDescending(m => m.Order)
+                    .ThenBy(m => m.MediaKey)
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        Assert.Matches(@"by ResourceRecordKey \(order by Order desc, MediaKey asc \| take \w+\)", kql);
+        Assert.DoesNotContain("(top ", kql);
+    }
+
+    [Fact]
+    public void Apply_partition_without_ordering_takes()
+    {
+        using var ctx = CreateContext();
+
+        int implicitPageSize = 1000;
+        int explicitTop = 1;
+        int outerTop = 4;
+
+        var kql = ctx.Property
+            .AsNoTracking()
+            .OrderBy(p => p.ListingKey)
+            .Select(p => new
+            {
+                p.ListingKey,
+                Media = p.Media
+                    .Take(implicitPageSize)
+                    .Take(explicitTop)
+                    .Select(m => m.MediaKey)
+            })
+            .Take(outerTop)
+            .ToQueryString();
+
+        Assert.Matches(@"by ResourceRecordKey \(take \w+\)", kql);
+        Assert.DoesNotContain("(top ", kql);
     }
 
     [Fact]

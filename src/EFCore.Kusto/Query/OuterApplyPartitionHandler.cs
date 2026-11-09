@@ -122,8 +122,7 @@ internal class OuterApplyPartitionHandler
 
     /// <summary>
     /// Writes the partition hint and outer limit clauses if in OUTER APPLY mode.
-    /// Generates: | partition hint.strategy=native by {column} (top {limit} by {orderings})
-    ///            | take {outerLimit}
+    /// Generates: | partition hint.strategy=native by {column} (order by {orderings} | take {limit})
     /// </summary>
     public void WritePartitionTake(
         SqlExpression outerLimit,
@@ -145,11 +144,10 @@ internal class OuterApplyPartitionHandler
         sql.Append(context.Column);
         sql.Append(" (");
 
+        // `top` takes a single sort column and requires one, so sort then take.
         if (context.Orderings.Count > 0)
         {
-            sql.Append("top ");
-            visitExpression(outerLimit);
-            sql.Append(" by ");
+            sql.Append("order by ");
 
             for (int i = 0; i < context.Orderings.Count; i++)
             {
@@ -158,13 +156,12 @@ internal class OuterApplyPartitionHandler
                 visitExpression(context.Orderings[i].expr);
                 sql.Append(context.Orderings[i].isAscending ? " asc" : " desc");
             }
-        }
-        else
-        {
-            sql.Append("top ");
-            visitExpression(outerLimit);
+
+            sql.Append(" | ");
         }
 
+        sql.Append("take ");
+        visitExpression(outerLimit);
         sql.Append(")");
     }
 
