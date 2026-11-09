@@ -75,9 +75,9 @@ public class KustoOuterApplyTests
             .ToQueryString();
 
         const string semiJoin =
-            "| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey";
+            "(__apply0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n) on $left.ListingKey == $right.ResourceRecordKey";
         Assert.Contains("\n)\n| as hint.materialized=true __apply0\n| join kind=leftouter (", kql);
-        Assert.Contains("Media\n" + semiJoin + "\n| order by MediaKey asc", kql);
+        Assert.Contains(semiJoin + "\n| order by MediaKey asc", kql);
         Assert.True(kql.IndexOf(semiJoin) < kql.IndexOf("| partition"));
         Assert.DoesNotMatch(@"\| project [^\n]*\n\| partition", kql);
     }
@@ -113,13 +113,13 @@ public class KustoOuterApplyTests
             .ToQueryString();
 
         const string mediaSemiJoin =
-            "| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey";
+            "(__apply0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n| where MediaKey <> \"x\"\n) on $left.ListingKey == $right.ResourceRecordKey";
         const string roomsSemiJoin =
-            "| join kind=leftsemi (__apply1 | project ListingKey) on $left.ListingKey == $right.ListingKey";
+            "(__apply1 | project ListingKey)\n| join kind=rightsemi (\nPropertyRooms\n) on $left.ListingKey == $right.ListingKey";
         Assert.Contains("| as hint.materialized=true __apply0\n", kql);
         Assert.Contains("| as hint.materialized=true __apply1\n", kql);
-        Assert.Contains("PropertyRooms\n" + roomsSemiJoin + "\n", kql);
-        Assert.True(kql.IndexOf("| where MediaKey") < kql.IndexOf(mediaSemiJoin));
+        Assert.Contains(roomsSemiJoin + "\n", kql);
+        Assert.Contains(mediaSemiJoin + "\n", kql);
         Assert.True(kql.IndexOf(mediaSemiJoin) < kql.IndexOf("| partition"));
     }
 
@@ -156,12 +156,12 @@ public class KustoOuterApplyTests
             .ToQueryString();
 
         Assert.Contains(
-            "Media\n| join kind=leftsemi (__apply0 | project ListingKey) on $left.ResourceRecordKey == $right.ListingKey\n",
+            "(__apply0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n) on $left.ListingKey == $right.ResourceRecordKey\n",
             kql);
         Assert.Contains(
-            "MediaTags\n| join kind=leftsemi (__apply1 | project MediaKey) on $left.MediaKey == $right.MediaKey\n",
+            "(__apply1 | project MediaKey)\n| join kind=rightsemi (\nMediaTags\n) on $left.MediaKey == $right.MediaKey\n",
             kql);
-        Assert.True(kql.IndexOf("| as hint.materialized=true __apply1") > kql.IndexOf("Media\n| join kind=leftsemi"));
+        Assert.True(kql.IndexOf("| as hint.materialized=true __apply1") > kql.IndexOf("| join kind=rightsemi (\nMedia\n"));
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class KustoOuterApplyTests
         Assert.StartsWith("Property\n| join kind=leftouter (", kql.Substring(kql.IndexOf("Property")));
         Assert.DoesNotContain("hint.materialized", kql);
         Assert.Matches(
-            @"Media\n\| join kind=leftsemi \(Property \| where ListingKey in \([^)]*\) \| project ListingKey\) on ",
+            @"\(Property \| where ListingKey in \([^)]*\) \| project ListingKey\)\n\| join kind=rightsemi \(\nMedia\n\) on ",
             kql);
         Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
     }
@@ -276,7 +276,7 @@ public class KustoOuterApplyTests
         Assert.Contains("partition hint.strategy=native by ResourceRecordKey", kql);
         Assert.DoesNotContain("partition hint.strategy=native by ListingKey", kql);
         Assert.Contains(") on $left.ListingKey == $right.ResourceRecordKey", kql);
-        Assert.Contains("on $left.ResourceRecordKey == $right.ListingKey", kql); // the semi-join
+        Assert.Contains("(__apply0 | project ListingKey)\n| join kind=rightsemi (\nMedia\n) on $left.ListingKey == $right.ResourceRecordKey", kql);
     }
 
     [Fact]

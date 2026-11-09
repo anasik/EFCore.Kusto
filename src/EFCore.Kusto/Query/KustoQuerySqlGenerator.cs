@@ -39,8 +39,13 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             Sql.AppendLine();
         }
 
+        var outerKeySemiJoin = _outerApplyHandler.IsActive && select.Predicate != null
+            && !ReferenceEquals(_outerApplyHandler.GetCleanedPredicate(select.Predicate), select.Predicate)
+            && _outerApplyHandler.WriteOuterKeySemiJoinStart(Sql);
         WriteFrom(select);
         WriteWhere(select);
+        if (outerKeySemiJoin)
+            _outerApplyHandler.WriteOuterKeySemiJoinEnd(Sql);
 
         if (IsPlainCountStarQuery(select))
         {
@@ -690,9 +695,6 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
             Sql.Append("| where ");
             Visit(predicateToRender);
         }
-
-        if (!ReferenceEquals(predicateToRender, select.Predicate))
-            _outerApplyHandler.WriteOuterKeySemiJoin(Sql);
     }
 
     protected override Expression VisitSqlUnary(SqlUnaryExpression sqlUnaryExpression)

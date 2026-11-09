@@ -54,7 +54,7 @@ internal class OuterApplyPartitionHandler
 
     /// <summary>
     /// Binds the outer rows rendered so far to a materialized name, so the APPLY's inner side can
-    /// restrict itself to the outer keys (see <see cref="WriteOuterKeySemiJoin"/>). Must be called
+    /// restrict itself to the outer keys (see <see cref="WriteOuterKeySemiJoinStart"/>). Must be called
     /// before the <c>| join</c> line of the APPLY.
     /// </summary>
     public void WriteOuterBinding(IRelationalCommandBuilder sql)
@@ -72,20 +72,32 @@ internal class OuterApplyPartitionHandler
     public void SetOuterKeys(Action writeOuterKeys) => _pendingOuterKeys = writeOuterKeys;
 
     /// <summary>
-    /// Writes <c>| join kind=leftsemi (outer | project key) on ...</c> in the select whose WHERE held the
-    /// correlation predicate. Removing the correlation alone leaves the inner side uncorrelated, so it
-    /// would be sorted/partitioned over every key before the APPLY join discards all but the outer ones.
+    /// Opens <c>(outer | project key) | join kind=rightsemi (</c> before the select whose WHERE held the
+    /// correlation predicate; <see cref="WriteOuterKeySemiJoinEnd"/> closes it after that WHERE. Removing the
+    /// correlation alone leaves the inner side uncorrelated, so it would be sorted/partitioned over every key
+    /// before the APPLY join discards all but the outer ones. The single key column goes on the left, the
+    /// side Kusto holds in memory; whole inner rows there can exhaust it.
     /// </summary>
-    public void WriteOuterKeySemiJoin(IRelationalCommandBuilder sql)
+    public bool WriteOuterKeySemiJoinStart(IRelationalCommandBuilder sql)
     {
         var context = _contextStack.Peek();
         if (context.WriteOuterKeys == null || context.OuterKeyColumn == null || context.JoinKeyColumn == null)
-            return;
+            return false;
 
-        sql.AppendLine();
-        sql.Append("| join kind=leftsemi (");
+        sql.Append("(");
         context.WriteOuterKeys();
-        sql.Append($" | project {context.OuterKeyColumn}) on $left.{context.JoinKeyColumn} == $right.{context.OuterKeyColumn}");
+        sql.Append($" | project {context.OuterKeyColumn})");
+        sql.AppendLine();
+        sql.Append("| join kind=rightsemi (");
+        sql.AppendLine();
+        return true;
+    }
+
+    public void WriteOuterKeySemiJoinEnd(IRelationalCommandBuilder sql)
+    {
+        var context = _contextStack.Peek();
+        sql.AppendLine();
+        sql.Append($") on $left.{context.OuterKeyColumn} == $right.{context.JoinKeyColumn}");
     }
 
     /// <summary>
