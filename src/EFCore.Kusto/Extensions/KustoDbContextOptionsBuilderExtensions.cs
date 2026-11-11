@@ -153,4 +153,19 @@ public static class KustoDbContextOptionsBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>
+    /// Configures the provider to send no credentials, for endpoints without authentication such as the local
+    /// Kusto emulator (<c>http://localhost:8080</c>).
+    /// </summary>
+    public static KustoDbContextOptionsBuilder UseNoAuthentication(this KustoDbContextOptionsBuilder builder)
+    {
+        var ext = builder.OptionsBuilder.Options.FindExtension<KustoOptionsExtension>()
+                  ?? new KustoOptionsExtension();
+
+        ext = ext.WithNoAuthentication();
+        ((IDbContextOptionsBuilderInfrastructure)builder.OptionsBuilder).AddOrUpdateExtension(ext);
+
+        return builder;
+    }
 }
