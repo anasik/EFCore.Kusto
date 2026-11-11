@@ -76,6 +76,22 @@ public class KustoOptionsExtensionTests
     }
 
     [Fact]
+    public void UseKusto_configures_no_authentication_and_clears_earlier_credentials()
+    {
+        var builder = new DbContextOptionsBuilder<TestContext>();
+
+        builder.UseKusto(Cluster, Database, kusto =>
+            kusto.UseApplicationAuthentication("tenant-id", "client-id", "secret").UseNoAuthentication());
+
+        var extension = builder.Options.FindExtension<KustoOptionsExtension>();
+
+        Assert.NotNull(extension);
+        Assert.Equal(KustoAuthenticationStrategy.None, extension!.AuthenticationStrategy);
+        Assert.Null(extension.ApplicationClientSecret);
+        Assert.Null(extension.Credential);
+    }
+
+    [Fact]
     public void AddEntityFrameworkKusto_registers_provider_services()
     {
         var services = new ServiceCollection();

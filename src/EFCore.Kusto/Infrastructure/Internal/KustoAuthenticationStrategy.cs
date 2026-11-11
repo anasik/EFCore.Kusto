@@ -18,5 +18,10 @@ public enum KustoAuthenticationStrategy
     /// <summary>
     /// Use a registered application and client secret to authenticate.
     /// </summary>
-    Application
+    Application,
+
+    /// <summary>
+    /// Send no credentials, for endpoints without authentication such as the local Kusto emulator.
+    /// </summary>
+    None
 }

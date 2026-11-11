@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One PR per family instead of one per package.
+      efcore:
+        patterns: ["Microsoft.EntityFrameworkCore*"]
+      kusto:
+        patterns: ["Microsoft.Azure.Kusto*"]
+      test:
+        patterns: ["xunit*", "Microsoft.NET.Test.Sdk", "Xunit.*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

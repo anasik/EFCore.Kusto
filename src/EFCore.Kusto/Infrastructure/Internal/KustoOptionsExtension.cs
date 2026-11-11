@@ -150,6 +150,21 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     }
 
     /// <summary>
+    /// Returns a copy of the extension configured to send no credentials.
+    /// </summary>
+    public KustoOptionsExtension WithNoAuthentication()
+    {
+        var clone = new KustoOptionsExtension(this);
+        clone.AuthenticationStrategy = KustoAuthenticationStrategy.None;
+        clone.Credential = null;
+        clone.ManagedIdentityClientId = null;
+        clone.ApplicationClientId = null;
+        clone.ApplicationClientSecret = null;
+        clone.ApplicationTenantId = null;
+        return clone;
+    }
+
+    /// <summary>
     /// Returns a copy of the extension with <see cref="TreatNullAsEmpty"/> set.
     /// </summary>
     public KustoOptionsExtension WithTreatNullAsEmpty(bool enabled)

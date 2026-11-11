@@ -1,0 +1,18 @@
+{
+  "stryker-config": {
+    "project": "EFCore.Kusto.csproj",
+    "test-projects": [
+      "tests/EFCore.Kusto.Tests/EFCore.Kusto.Tests.csproj",
+      "tests/EFCore.Kusto.ConformanceTests/EFCore.Kusto.ConformanceTests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "src/EFCore.Kusto/Query/**/*.cs",
+      "src/EFCore.Kusto/Storage/KustoLiteral.cs",
+      "src/EFCore.Kusto/Data/KustoDataReader.cs",
+      "src/EFCore.Kusto/Update/**/*.cs"
+    ],
+    "reporters": [ "progress", "html", "markdown" ],
+    "thresholds": { "high": 80, "low": 60, "break": 0 }
+  }
+}

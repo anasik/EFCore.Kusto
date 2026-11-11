@@ -19,7 +19,7 @@ public sealed class KustoCommand : DbCommand
     private readonly string _clusterUrl;
     private readonly string _database;
     private readonly KustoOptionsExtension _options;
-    private readonly TokenCredential _credential;
+    private readonly TokenCredential? _credential;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KustoCommand"/> class.
@@ -48,6 +48,8 @@ public sealed class KustoCommand : DbCommand
                 => new ManagedIdentityCredential(_options.ManagedIdentityClientId),
             KustoAuthenticationStrategy.ManagedIdentity
                 => new ManagedIdentityCredential(),
+            KustoAuthenticationStrategy.None
+                => null,
             KustoAuthenticationStrategy.Application
                 => new ClientSecretCredential(
                     _options.ApplicationTenantId!,
@@ -144,13 +146,13 @@ public sealed class KustoCommand : DbCommand
         CommandBehavior behavior,
         CancellationToken cancellationToken)
     {
-        var token = await GetKustoTokenAsync(_clusterUrl, cancellationToken).ConfigureAwait(false);
-
-        var csb = new KustoConnectionStringBuilder($"{_clusterUrl};Fed=true")
-        {
-            UserToken = token,
-            InitialCatalog = _database
-        };
+        var csb = _credential == null
+            ? new KustoConnectionStringBuilder(_clusterUrl) { InitialCatalog = _database }
+            : new KustoConnectionStringBuilder($"{_clusterUrl};Fed=true")
+            {
+                UserToken = await GetKustoTokenAsync(_clusterUrl, _credential, cancellationToken).ConfigureAwait(false),
+                InitialCatalog = _database
+            };
 
         var client = KustoClientFactory.CreateCslQueryProvider(csb);
         var admin = KustoClientFactory.CreateCslAdminProvider(csb);
@@ -195,11 +197,11 @@ public sealed class KustoCommand : DbCommand
     /// </summary>
     /// <param name="clusterUrl">The cluster URL to scope the token to.</param>
     /// <returns>An access token string.</returns>
-    private async Task<string> GetKustoTokenAsync(string clusterUrl, CancellationToken cancellationToken)
+    private static async Task<string> GetKustoTokenAsync(string clusterUrl, TokenCredential credential, CancellationToken cancellationToken)
     {
         string scope = $"{clusterUrl}/.default";
 
-        AccessToken token = await _credential.GetTokenAsync(
+        AccessToken token = await credential.GetTokenAsync(
             new TokenRequestContext(new[] { scope }),
             cancellationToken).ConfigureAwait(false);
 

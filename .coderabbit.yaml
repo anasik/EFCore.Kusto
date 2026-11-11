@@ -1,0 +1,19 @@
+# CodeRabbit AI review settings. Install the app at https://github.com/apps/coderabbitai for this repository.
+language: en-US
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "src/EFCore.Kusto/Query/**"
+      instructions: >-
+        This code translates EF Core query trees to KQL. Check that every generated construct is valid KQL, that
+        results match LINQ semantics (nulls, ordering, joins with same-named columns), and that no optimization
+        assumes anything about data sizes or distributions it cannot prove from the query itself.
+    - path: "tests/**"
+      instructions: >-
+        Every bug fix needs a regression test that fails without the fix. Prefer asserting exact KQL or exact rows.
