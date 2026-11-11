@@ -1011,7 +1011,7 @@ public sealed class KustoQuerySqlGenerator(QuerySqlGeneratorDependencies deps, b
         switch (Type.GetTypeCode(c.Value.GetType()))
         {
             case TypeCode.String:
-                Sql.Append($"\"{c.Value}\"");
+                Sql.Append(KustoLiteral.Format(c.Value, "string"));
                 break;
 
             case TypeCode.Boolean:

@@ -36,6 +36,15 @@ public class KustoStringMethodTranslationTests
     }
 
     [Fact]
+    public void String_constant_escapes_quotes_backslashes_and_newlines()
+    {
+        using var context = CreateContext();
+        var kql = context.Properties.Where(p => p.AssociationName == "a\"b\\c\nd").ToQueryString();
+
+        Assert.Contains("\"a\\\"b\\\\c\\nd\"", kql);
+    }
+
+    [Fact]
     public void StartsWith_on_scalar_string_property_translates_to_startswith_cs()
     {
         using var context = CreateContext();
