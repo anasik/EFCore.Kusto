@@ -16,11 +16,12 @@ public sealed class SeedData : IShop
     public IQueryable<OrderLine> OrderLines => OrderLineList.AsQueryable();
     public IQueryable<Product> Products => ProductList.AsQueryable();
 
-    public static readonly SeedData Instance = Build();
-
     private static readonly string[] Cities = { "Lahore", "Karachi", "O\"Brien Town", "Zoë", "back\\slash", "" };
     private static readonly string[] Statuses = { "open", "shipped", "cancelled", "Open" };
     private static readonly string[] Categories = { "tools", "toys", "food", "line\nbreak" };
+
+    // Declared after the arrays above: static fields initialize in declaration order, and Build reads them.
+    public static readonly SeedData Instance = Build();
 
     private static SeedData Build()
     {
